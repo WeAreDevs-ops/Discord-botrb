@@ -135,20 +135,24 @@ const commands = [
         .setName('addaccount')
         .setDescription('Add account to stock')
         .addStringOption(option =>
-            option.setName('description')
-                .setDescription('Account description')
+            option.setName('username')
+                .setDescription('Account username')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('summary')
+                .setDescription('Account summary/details (e.g., 60K)')
+                .setRequired(true))
+        .addNumberOption(option =>
+            option.setName('price')
+                .setDescription('Price for this account')
                 .setRequired(true))
         .addBooleanOption(option =>
             option.setName('premium')
                 .setDescription('Is this a premium account?')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('summary')
-                .setDescription('Account summary/details')
-                .setRequired(true))
-        .addNumberOption(option =>
-            option.setName('price')
-                .setDescription('Price for this account')
+            option.setName('description')
+                .setDescription('Account description')
                 .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -334,14 +338,15 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     // Different field format for accounts vs robux
     if (itemId.startsWith('account_')) {
         embed.addFields({
-            name: item.name,
-            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium: ${item.premium}\n${item.description}\n${item.summary}`,
+            name: `Username: ${item.username}`,
+            value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\nDescription: ${item.description}`,
             inline: false
         });
     } else {
+        const taxStatus = item.taxCovered ? 'Covered tax' : 'Not covered tax';
         embed.addFields({
             name: item.name,
-            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nProcess: ${taxStatus}`,
             inline: false
         });
     }
@@ -350,7 +355,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
         .addComponents(
             new ButtonBuilder()
                 .setCustomId(`order_${itemId}`)
-                .setLabel(itemId.startsWith('account_') ? 'Order Account' : `Order ${item.name}`)
+                .setLabel(itemId.startsWith('account_') ? 'Order Account' : 'Order Robux')
                 .setStyle(ButtonStyle.Primary)
         );
 
@@ -370,13 +375,14 @@ async function sendRobuxEmbed(channel) {
 
     // Send each Robux item as a separate embed
     for (const [itemId, item] of robuxItems) {
+        const taxStatus = item.taxCovered ? 'Covered tax' : 'Not covered tax';
         const embed = new EmbedBuilder()
             .setTitle('Available Items')
             .setColor(0x2f3136)
             .setDescription('Choose an item to purchase:')
             .addFields({
                 name: item.name,
-                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nProcess: ${taxStatus}`,
                 inline: false
             })
             .setTimestamp();
@@ -385,7 +391,7 @@ async function sendRobuxEmbed(channel) {
             .addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
-                    .setLabel(`Order ${item.name}`)
+                    .setLabel('Order Robux')
                     .setStyle(ButtonStyle.Primary)
             );
 
@@ -411,8 +417,8 @@ async function sendAccountsEmbed(channel) {
             .setColor(0x2f3136)
             .setDescription('Choose an item to purchase:')
             .addFields({
-                name: item.name,
-                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium: ${item.premium}\n${item.description}\n${item.summary}`,
+                name: `Username: ${item.username}`,
+                value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\nDescription: ${item.description}`,
                 inline: false
             })
             .setTimestamp();
@@ -612,18 +618,19 @@ async function handleAddAccountCommand(interaction) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
     }
 
-    const description = interaction.options.getString('description');
-    const premium = interaction.options.getBoolean('premium');
+    const username = interaction.options.getString('username');
     const summary = interaction.options.getString('summary');
     const price = interaction.options.getNumber('price');
+    const premium = interaction.options.getBoolean('premium');
+    const description = interaction.options.getString('description');
 
     const stock = loadData('stock.json');
     const timestamp = Date.now();
     const itemId = `account_${timestamp}`;
-    const premiumText = premium ? 'Premium' : 'Regular';
 
     stock[itemId] = { 
-        name: `${premiumText} Account - ${description}`,
+        name: username,
+        username: username,
         description: description,
         premium: premium,
         summary: summary,
@@ -634,7 +641,7 @@ async function handleAddAccountCommand(interaction) {
     saveData('stock.json', stock);
 
     await interaction.reply({ 
-        content: `Successfully added ${premiumText} Account "${description}" at ₱${price.toFixed(2)}.`, 
+        content: `Successfully added Account "${username}" at ₱${price.toFixed(2)}.`, 
         ephemeral: true 
     });
 
