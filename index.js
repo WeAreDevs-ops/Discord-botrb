@@ -1137,15 +1137,13 @@ async function handleModal(interaction) {
                 // Extract the image URL from the payment details
                 const urlMatch = paymentDetails.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif))/i);
                 if (urlMatch) {
-                    embed.setImage(urlMatch[0]);
-                    // Remove the image URL from the text and add remaining text as field
+                    // Remove the image URL from the text and create clickable link
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
-                    if (textOnly) {
-                        embed.addFields({
-                            name: '💰 Payment Instructions',
-                            value: textOnly
-                        });
-                    }
+                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[MyQR.code](${urlMatch[0]})`;
+                    embed.addFields({
+                        name: '💰 Payment Instructions',
+                        value: paymentInstructions
+                    });
                 } else {
                     embed.addFields({
                         name: '💰 Payment Instructions',
