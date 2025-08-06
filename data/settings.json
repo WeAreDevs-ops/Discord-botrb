@@ -1,0 +1,9 @@
+
+{
+  "paymentMethods": {
+    "paypal": "Send payment to: example@paypal.com",
+    "cashapp": "Send payment to: $ExampleTag",
+    "crypto": "Bitcoin address: 1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
+  },
+  "announcementChannel": null
+}
