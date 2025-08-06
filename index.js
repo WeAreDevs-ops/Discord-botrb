@@ -1,4 +1,3 @@
-
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v10');
@@ -126,6 +125,10 @@ const commands = [
             option.setName('price')
                 .setDescription('Price per item')
                 .setRequired(true))
+        .addBooleanOption(option =>
+            option.setName('tax_covered')
+                .setDescription('Is the tax covered?')
+                .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     new SlashCommandBuilder()
@@ -229,15 +232,15 @@ const commands = [
 // Register slash commands
 async function registerCommands() {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    
+
     try {
         console.log('Started refreshing application (/) commands.');
-        
+
         await rest.put(
             Routes.applicationCommands(client.user.id),
             { body: commands.map(command => command.toJSON()) }
         );
-        
+
         console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
         console.error('Error registering commands:', error);
@@ -332,7 +335,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     if (itemId.startsWith('account_')) {
         embed.addFields({
             name: item.name,
-            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.summary}`,
+            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium: ${item.premium}\n${item.description}\n${item.summary}`,
             inline: false
         });
     } else {
@@ -356,7 +359,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
 
 async function sendRobuxEmbed(channel) {
     const stock = loadData('stock.json');
-    
+
     const robuxItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('robux_') && item.quantity > 0
     );
@@ -392,7 +395,7 @@ async function sendRobuxEmbed(channel) {
 
 async function sendAccountsEmbed(channel) {
     const stock = loadData('stock.json');
-    
+
     const accountItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('account_') && item.quantity > 0
     );
@@ -409,7 +412,7 @@ async function sendAccountsEmbed(channel) {
             .setDescription('Choose an item to purchase:')
             .addFields({
                 name: item.name,
-                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.summary}`,
+                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium: ${item.premium}\n${item.description}\n${item.summary}`,
                 inline: false
             })
             .setTimestamp();
@@ -477,7 +480,7 @@ async function handleCheckoutCommand(interaction) {
     }
 
     const order = orders[orderId];
-    
+
     if (order.userId !== interaction.user.id) {
         return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
     }
@@ -538,7 +541,7 @@ async function handleStatusCommand(interaction) {
     }
 
     const order = orders[orderId];
-    
+
     if (order.userId !== interaction.user.id) {
         return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
     }
@@ -580,21 +583,23 @@ async function handleAddRobuxCommand(interaction) {
     const amount = interaction.options.getInteger('amount');
     const quantity = interaction.options.getInteger('quantity');
     const price = interaction.options.getNumber('price');
-    
+    const taxCovered = interaction.options.getBoolean('tax_covered');
+
     const stock = loadData('stock.json');
     const itemId = `robux_${amount}`;
-    
+
     if (!stock[itemId]) {
-        stock[itemId] = { name: `${amount} Robux`, quantity: 0, price: 0 };
+        stock[itemId] = { name: `${amount} Robux`, quantity: 0, price: 0, taxCovered: false };
     }
-    
+
     stock[itemId].quantity += quantity;
     stock[itemId].price = price;
-    
+    stock[itemId].taxCovered = taxCovered;
+
     saveData('stock.json', stock);
 
     await interaction.reply({ 
-        content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each.`, 
+        content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each. Tax Covered: ${taxCovered}.`, 
         ephemeral: true 
     });
 
@@ -611,12 +616,12 @@ async function handleAddAccountCommand(interaction) {
     const premium = interaction.options.getBoolean('premium');
     const summary = interaction.options.getString('summary');
     const price = interaction.options.getNumber('price');
-    
+
     const stock = loadData('stock.json');
     const timestamp = Date.now();
     const itemId = `account_${timestamp}`;
     const premiumText = premium ? 'Premium' : 'Regular';
-    
+
     stock[itemId] = { 
         name: `${premiumText} Account - ${description}`,
         description: description,
@@ -625,7 +630,7 @@ async function handleAddAccountCommand(interaction) {
         quantity: 1,
         price: price
     };
-    
+
     saveData('stock.json', stock);
 
     await interaction.reply({ 
@@ -643,7 +648,7 @@ async function handleOrderChannelCommand(interaction) {
     }
 
     const channel = interaction.options.getChannel('channel');
-    
+
     const settings = loadData('settings.json');
     settings.orderChannel = channel.id;
     saveData('settings.json', settings);
@@ -661,13 +666,13 @@ async function handleRemoveStockCommand(interaction) {
 
     const itemId = interaction.options.getString('item');
     const quantity = interaction.options.getInteger('quantity');
-    
+
     const stock = loadData('stock.json');
-    
+
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
-    
+
     stock[itemId].quantity = Math.max(0, stock[itemId].quantity - quantity);
     saveData('stock.json', stock);
 
@@ -684,13 +689,13 @@ async function handleSetPriceCommand(interaction) {
 
     const itemId = interaction.options.getString('item');
     const newPrice = interaction.options.getNumber('new_price');
-    
+
     const stock = loadData('stock.json');
-    
+
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
-    
+
     stock[itemId].price = newPrice;
     saveData('stock.json', stock);
 
@@ -773,7 +778,7 @@ async function handleSetPaymentCommand(interaction) {
 
     const method = interaction.options.getString('method');
     const details = interaction.options.getString('details');
-    
+
     const settings = loadData('settings.json');
     settings.paymentMethods[method] = details;
     saveData('settings.json', settings);
@@ -790,7 +795,7 @@ async function handleAnnounceCommand(interaction) {
     }
 
     const message = interaction.options.getString('message');
-    
+
     const embed = new EmbedBuilder()
         .setTitle('Announcement')
         .setColor(0x2f3136)
@@ -823,7 +828,7 @@ async function handleButton(interaction) {
 
         const isRobuxItem = itemId.startsWith('robux_');
         const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
-        
+
         const usernameInput = new TextInputBuilder()
             .setCustomId('username')
             .setLabel(usernameLabel)
