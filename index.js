@@ -1139,7 +1139,7 @@ async function handleModal(interaction) {
                 if (urlMatch) {
                     // Remove the image URL from the text and create clickable link
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
-                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[MyQR.code](${urlMatch[0]})`;
+                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[Click here for QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
                     embed.addFields({
                         name: '💰 Payment Instructions',
                         value: paymentInstructions
