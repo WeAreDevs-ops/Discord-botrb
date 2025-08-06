@@ -1,18 +1,1 @@
 
-{
-  "robux_1000": {
-    "name": "1000 Robux",
-    "quantity": 50,
-    "price": 10.00
-  },
-  "robux_5000": {
-    "name": "5000 Robux",
-    "quantity": 20,
-    "price": 45.00
-  },
-  "account_premium": {
-    "name": "Premium Account",
-    "quantity": 10,
-    "price": 25.00
-  }
-}
