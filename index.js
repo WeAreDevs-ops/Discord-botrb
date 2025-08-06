@@ -647,7 +647,6 @@ async function handleAddRobuxCommand(interaction) {
     stock[itemId].taxCovered = taxCovered;
 
     await saveDataToFirebase('stock', stock);
-    saveData('stock.json', stock); // Backup to local file
 
     console.log(`Created Robux item with ID: ${itemId}`);
     console.log(`Item data:`, stock[itemId]);
@@ -687,7 +686,6 @@ async function handleAddAccountCommand(interaction) {
     };
 
     await saveDataToFirebase('stock', stock);
-    saveData('stock.json', stock); // Backup to local file
 
     console.log(`Created Account item with ID: ${itemId}`);
     console.log(`Item data:`, stock[itemId]);
@@ -711,7 +709,6 @@ async function handleOrderChannelCommand(interaction) {
     const settings = await loadDataFromFirebase('settings');
     settings.orderChannel = channel.id;
     await saveDataToFirebase('settings', settings);
-    saveData('settings.json', settings); // Backup to local file
 
     await interaction.reply({ 
         content: `Order notification channel set to ${channel}`, 
@@ -730,7 +727,6 @@ async function handleDeliveryChannelCommand(interaction) {
     const settings = await loadDataFromFirebase('settings');
     settings.deliveryChannel = channel.id;
     await saveDataToFirebase('settings', settings);
-    saveData('settings.json', settings); // Backup to local file
 
     await interaction.reply({ 
         content: `Delivery notification channel set to ${channel}`, 
@@ -754,7 +750,6 @@ async function handleRemoveStockCommand(interaction) {
 
     stock[itemId].quantity = Math.max(0, stock[itemId].quantity - quantity);
     await saveDataToFirebase('stock', stock);
-    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully removed ${quantity} from ${itemId}. New quantity: ${stock[itemId].quantity}`, 
@@ -778,7 +773,6 @@ async function handleSetPriceCommand(interaction) {
 
     stock[itemId].price = newPrice;
     await saveDataToFirebase('stock', stock);
-    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully updated ${itemId} price to ₱${newPrice.toFixed(2)}`, 
@@ -832,7 +826,6 @@ async function handleDeliverCommand(interaction) {
     // Update order status to delivered
     orders[orderId].status = 'Delivered';
     await saveDataToFirebase('orders', orders);
-    saveData('orders.json', orders); // Backup to local file
 
     // Send delivery notification to the delivery channel
     if (settings.deliveryChannel) {
@@ -896,7 +889,6 @@ async function handleSetPaymentCommand(interaction) {
     const settings = await loadDataFromFirebase('settings');
     settings.paymentMethods[method] = details;
     await saveDataToFirebase('settings', settings);
-    saveData('settings.json', settings); // Backup to local file
 
     await interaction.reply({ 
         content: `Payment method ${method} updated successfully.`, 
@@ -1053,10 +1045,6 @@ async function handleModal(interaction) {
         await saveDataToFirebase('orders', orders);
         await saveDataToFirebase('stock', stock);
 
-        // Backup to local files
-        saveData('orders.json', orders);
-        saveData('stock.json', stock);
-
         const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
 
         const embed = new EmbedBuilder()
@@ -1086,7 +1074,7 @@ async function handleModal(interaction) {
                     .setTitle('Pending Orders')
                     .setColor(0xffff00)
                     .setAuthor({ 
-                        name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
+                        name: `${interaction.user.username} (${interaction.user.displayname || interaction.user.username})`,
                         iconURL: interaction.user.displayAvatarURL()
                     })
                     .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${username}\n**Payment Method:** ${paymentMethod}`)
