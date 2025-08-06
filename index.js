@@ -549,29 +549,31 @@ async function handleCheckoutCommand(interaction) {
 
 
 async function handleOrdersCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
     const embed = new EmbedBuilder()
         .setTitle('📋 Order History Panel')
         .setColor(0x2f3136)
-        .setDescription('View your order history below.')
+        .setDescription('Click the button below to view your order history.')
+        .addFields({
+            name: 'How to use:',
+            value: '1. Click the "View My Orders" button\n2. Your personal order history will be displayed\n3. Any user can use this button to check their orders',
+            inline: false
+        })
         .setTimestamp();
 
-    const guildId = interaction.guildId;
-    const orders = await loadDataFromFirebase('orders', guildId);
-    const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('view_my_orders')
+                .setLabel('View My Orders')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('📋')
+        );
 
-    if (userOrders.length === 0) {
-        embed.addFields({ name: 'No Orders Found', value: 'You have not placed any orders yet.', inline: false });
-    } else {
-        userOrders.slice(0, 10).forEach(([orderId, order]) => {
-            embed.addFields({
-                name: `Order ${orderId}`,
-                value: `Item: ${order.itemName}\nQuantity: ${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
-                inline: false
-            });
-        });
-    }
-
-    await interaction.reply({ embeds: [embed], ephemeral: false });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
 }
 
 async function handleStatusCommand(interaction) {
@@ -995,6 +997,37 @@ async function handleButton(interaction) {
         modal.addComponents(firstRow);
 
         await interaction.showModal(modal);
+        return;
+    }
+
+    if (interaction.customId === 'view_my_orders') {
+        const guildId = interaction.guildId;
+        const orders = await loadDataFromFirebase('orders', guildId);
+        const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
+
+        const embed = new EmbedBuilder()
+            .setTitle('📋 Your Order History')
+            .setColor(0x2f3136)
+            .setDescription(`Order history for ${interaction.user.username}`)
+            .setTimestamp();
+
+        if (userOrders.length === 0) {
+            embed.addFields({ name: 'No Orders Found', value: 'You have not placed any orders yet.', inline: false });
+        } else {
+            userOrders.slice(0, 10).forEach(([orderId, order]) => {
+                embed.addFields({
+                    name: `Order ${orderId}`,
+                    value: `Item: ${order.itemName}\nQuantity: ${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}\nDate: ${new Date(order.timestamp).toLocaleDateString()}`,
+                    inline: false
+                });
+            });
+
+            if (userOrders.length > 10) {
+                embed.setFooter({ text: `Showing 10 of ${userOrders.length} orders` });
+            }
+        }
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
         return;
     }
 
