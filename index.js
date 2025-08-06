@@ -826,34 +826,47 @@ async function handleButton(interaction) {
             .setCustomId(`buy_modal_${itemId}_1`)
             .setTitle('Purchase Information');
 
-        const quantityInput = new TextInputBuilder()
-            .setCustomId('quantity')
-            .setLabel('Quantity')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setValue('1');
-
         const isRobuxItem = itemId.startsWith('robux_');
-        const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
 
-        const usernameInput = new TextInputBuilder()
-            .setCustomId('username')
-            .setLabel(usernameLabel)
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true);
+        if (isRobuxItem) {
+            // Robux items need quantity, gamepass link, and payment method
+            const quantityInput = new TextInputBuilder()
+                .setCustomId('quantity')
+                .setLabel('Quantity')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setValue('1');
 
-        const paymentMethodInput = new TextInputBuilder()
-            .setCustomId('payment_method')
-            .setLabel('Preferred Payment Method')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('PayPal, CashApp, Crypto, etc.')
-            .setRequired(true);
+            const usernameInput = new TextInputBuilder()
+                .setCustomId('username')
+                .setLabel('Gamepass link')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
 
-        const firstRow = new ActionRowBuilder().addComponents(quantityInput);
-        const secondRow = new ActionRowBuilder().addComponents(usernameInput);
-        const thirdRow = new ActionRowBuilder().addComponents(paymentMethodInput);
+            const paymentMethodInput = new TextInputBuilder()
+                .setCustomId('payment_method')
+                .setLabel('Preferred Payment Method')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('PayPal, CashApp, Crypto, etc.')
+                .setRequired(true);
 
-        modal.addComponents(firstRow, secondRow, thirdRow);
+            const firstRow = new ActionRowBuilder().addComponents(quantityInput);
+            const secondRow = new ActionRowBuilder().addComponents(usernameInput);
+            const thirdRow = new ActionRowBuilder().addComponents(paymentMethodInput);
+
+            modal.addComponents(firstRow, secondRow, thirdRow);
+        } else {
+            // Account items only need payment method
+            const paymentMethodInput = new TextInputBuilder()
+                .setCustomId('payment_method')
+                .setLabel('Preferred Payment Method')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('PayPal, CashApp, Crypto, etc.')
+                .setRequired(true);
+
+            const firstRow = new ActionRowBuilder().addComponents(paymentMethodInput);
+            modal.addComponents(firstRow);
+        }
 
         await interaction.showModal(modal);
     }
@@ -866,11 +879,19 @@ async function handleModal(interaction) {
         const itemId = parts[2];
         let quantity = parseInt(parts[3]);
 
-        if (interaction.fields.getTextInputValue('quantity')) {
-            quantity = parseInt(interaction.fields.getTextInputValue('quantity'));
+        const isRobuxItem = itemId.startsWith('robux_');
+
+        if (isRobuxItem) {
+            if (interaction.fields.getTextInputValue('quantity')) {
+                quantity = parseInt(interaction.fields.getTextInputValue('quantity'));
+            }
+        } else {
+            // For accounts, quantity is always 1
+            quantity = 1;
         }
 
-        const username = interaction.fields.getTextInputValue('username');
+        // For accounts, username is not needed. For Robux, it's the gamepass link
+        const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : 'N/A';
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
 
         const stock = loadData('stock.json');
@@ -911,7 +932,6 @@ async function handleModal(interaction) {
         saveData('orders.json', orders);
         saveData('stock.json', stock);
 
-        const isRobuxItem = itemId.startsWith('robux_');
         const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
 
         const embed = new EmbedBuilder()
@@ -935,8 +955,7 @@ async function handleModal(interaction) {
         if (settings.orderChannel) {
             try {
                 const orderChannel = await client.channels.fetch(settings.orderChannel);
-                const isRobuxItem = itemId.startsWith('robux_');
-                const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+                const usernameFieldName2 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
 
                 const orderEmbed = new EmbedBuilder()
                     .setTitle('Pending Orders')
@@ -945,7 +964,7 @@ async function handleModal(interaction) {
                         name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
                         iconURL: interaction.user.displayAvatarURL()
                     })
-                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName}:** ${username}\n**Payment Method:** ${paymentMethod}`)
+                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${username}\n**Payment Method:** ${paymentMethod}`)
                     .setTimestamp();
 
                 await orderChannel.send({ embeds: [orderEmbed] });
