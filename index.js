@@ -1,4 +1,3 @@
-
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v10');
@@ -93,7 +92,8 @@ async function initializeData() {
                 cashapp: 'Send payment to: $ExampleTag',
                 crypto: 'Bitcoin address: 1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
             },
-            orderChannel: null
+            orderChannel: null,
+            deliveryChannel: null // Added deliveryChannel initialization
         };
         await saveDataToFirebase('settings', defaultSettings);
     }
@@ -195,6 +195,16 @@ const commands = [
                 .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+    // New command to set the delivery channel
+    new SlashCommandBuilder()
+        .setName('deliverchannel')
+        .setDescription('Set the delivery notification channel')
+        .addChannelOption(option =>
+            option.setName('channel')
+                .setDescription('Channel for delivery notifications')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
     new SlashCommandBuilder()
         .setName('removestock')
         .setDescription('Remove stock quantity')
@@ -260,7 +270,9 @@ const commands = [
             option.setName('message')
                 .setDescription('Announcement message')
                 .setRequired(true))
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+
 ];
 
 // Register slash commands
@@ -327,6 +339,9 @@ async function handleSlashCommand(interaction) {
             case 'orderchannel':
                 await handleOrderChannelCommand(interaction);
                 break;
+            case 'deliverchannel': // Handler for the new command
+                await handleDeliveryChannelCommand(interaction);
+                break;
             case 'removestock':
                 await handleRemoveStockCommand(interaction);
                 break;
@@ -345,6 +360,7 @@ async function handleSlashCommand(interaction) {
             case 'announce':
                 await handleAnnounceCommand(interaction);
                 break;
+
             default:
                 await interaction.reply({ content: 'Unknown command!', ephemeral: true });
         }
@@ -705,6 +721,25 @@ async function handleOrderChannelCommand(interaction) {
     });
 }
 
+// Handler for the new /deliverchannel command
+async function handleDeliveryChannelCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const channel = interaction.options.getChannel('channel');
+
+    const settings = await loadDataFromFirebase('settings');
+    settings.deliveryChannel = channel.id;
+    await saveDataToFirebase('settings', settings);
+    saveData('settings.json', settings); // Backup to local file
+
+    await interaction.reply({ 
+        content: `Delivery notification channel set to ${channel}`, 
+        ephemeral: true 
+    });
+}
+
 async function handleRemoveStockCommand(interaction) {
     if (!interaction.memberPermissions.has('Administrator')) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
@@ -788,34 +823,66 @@ async function handleDeliverCommand(interaction) {
 
     const orderId = interaction.options.getString('order_id');
     const orders = await loadDataFromFirebase('orders');
+    const settings = await loadDataFromFirebase('settings');
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
     }
 
+    const order = orders[orderId];
+
+    // Update order status to delivered
     orders[orderId].status = 'Delivered';
     await saveDataToFirebase('orders', orders);
     saveData('orders.json', orders); // Backup to local file
 
+    // Send delivery notification to the delivery channel
+    if (settings.deliveryChannel) {
+        try {
+            const deliveryChannel = await client.channels.fetch(settings.deliveryChannel);
+
+            const deliveredEmbed = new EmbedBuilder()
+                .setTitle('✅ Order Delivered Successfully!')
+                .setColor(0x00ff00)
+                .setDescription(`**Order ID:** ${orderId}`)
+                .addFields(
+                    { name: 'Customer', value: `<@${order.userId}>`, inline: true },
+                    { name: 'Item', value: order.itemName, inline: true },
+                    { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                    { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
+                    { name: 'Payment Method', value: order.paymentMethod, inline: true },
+                    { name: 'Status', value: '✅ Delivered', inline: true }
+                )
+                .setTimestamp();
+
+            await deliveryChannel.send({ embeds: [deliveredEmbed] });
+        } catch (error) {
+            console.error('Could not send delivery notification to delivery channel:', error);
+        }
+    }
+
+    // Send DM to the customer
     try {
-        const user = await client.users.fetch(orders[orderId].userId);
-        const deliveryEmbed = new EmbedBuilder()
-            .setTitle('Order Delivered!')
-            .setColor(0x2f3136)
-            .setDescription(`Your order ${orderId} has been delivered!`)
+        const user = await client.users.fetch(order.userId);
+        const userEmbed = new EmbedBuilder()
+            .setTitle('✅ Your Order Has Been Delivered!')
+            .setColor(0x00ff00)
+            .setDescription(`Thank you for your purchase! Your order ${orderId} has been successfully delivered.`)
             .addFields(
-                { name: 'Item', value: orders[orderId].itemName },
-                { name: 'Quantity', value: orders[orderId].quantity.toString() }
+                { name: 'Item', value: order.itemName, inline: true },
+                { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                { name: 'Order ID', value: orderId, inline: true }
             )
+            .setFooter({ text: 'Thank you for choosing our service!' })
             .setTimestamp();
 
-        await user.send({ embeds: [deliveryEmbed] });
+        await user.send({ embeds: [userEmbed] });
     } catch (error) {
         console.error('Could not send DM to user:', error);
     }
 
     await interaction.reply({ 
-        content: `Order ${orderId} marked as delivered and user notified.`, 
+        content: `✅ Order ${orderId} marked as delivered! Notification sent to delivery channel and customer has been DMed.`, 
         ephemeral: true 
     });
 }
@@ -854,6 +921,8 @@ async function handleAnnounceCommand(interaction) {
 
     await interaction.reply({ embeds: [embed] });
 }
+
+
 
 // Button handling
 async function handleButton(interaction) {
@@ -985,7 +1054,7 @@ async function handleModal(interaction) {
 
         await saveDataToFirebase('orders', orders);
         await saveDataToFirebase('stock', stock);
-        
+
         // Backup to local files
         saveData('orders.json', orders);
         saveData('stock.json', stock);
