@@ -1,8 +1,25 @@
+
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v10');
+const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
+
+// Initialize Firebase Admin SDK
+const serviceAccount = {
+    type: "service_account",
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+};
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DB_URL
+});
+
+const db = admin.database();
 
 const client = new Client({
     intents: [
@@ -12,7 +29,26 @@ const client = new Client({
     ]
 });
 
-// Data management functions
+// Firebase data management functions
+async function loadDataFromFirebase(collection) {
+    try {
+        const snapshot = await db.ref(collection).once('value');
+        return snapshot.val() || {};
+    } catch (error) {
+        console.error(`Error loading ${collection} from Firebase:`, error);
+        return {};
+    }
+}
+
+async function saveDataToFirebase(collection, data) {
+    try {
+        await db.ref(collection).set(data);
+    } catch (error) {
+        console.error(`Error saving ${collection} to Firebase:`, error);
+    }
+}
+
+// Legacy file data management (backup)
 function loadData(filename) {
     const filepath = path.join(__dirname, 'data', filename);
     if (!fs.existsSync(filepath)) {
@@ -44,28 +80,22 @@ function generateOrderId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// Initialize data files
-function initializeData() {
-    const stockFile = loadData('stock.json');
-    if (Object.keys(stockFile).length === 0) {
-        saveData('stock.json', {});
-    }
+// Initialize data
+async function initializeData() {
+    const stock = await loadDataFromFirebase('stock');
+    const orders = await loadDataFromFirebase('orders');
+    const settings = await loadDataFromFirebase('settings');
 
-    const ordersFile = loadData('orders.json');
-    if (Object.keys(ordersFile).length === 0) {
-        saveData('orders.json', {});
-    }
-
-    const settingsFile = loadData('settings.json');
-    if (Object.keys(settingsFile).length === 0) {
-        saveData('settings.json', {
+    if (Object.keys(settings).length === 0) {
+        const defaultSettings = {
             paymentMethods: {
                 paypal: 'Send payment to: example@paypal.com',
                 cashapp: 'Send payment to: $ExampleTag',
                 crypto: 'Bitcoin address: 1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
             },
-            announcementChannel: null
-        });
+            orderChannel: null
+        };
+        await saveDataToFirebase('settings', defaultSettings);
     }
 }
 
@@ -253,7 +283,7 @@ async function registerCommands() {
 
 client.once('ready', async () => {
     console.log(`Bot is ready! Logged in as ${client.user.tag}`);
-    initializeData();
+    await initializeData();
     await registerCommands();
 });
 
@@ -339,7 +369,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     if (itemId.startsWith('account_')) {
         embed.addFields({
             name: `Username: ${item.username}`,
-            value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\nDescription: ${item.description}`,
+            value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\n${item.description}`,
             inline: false
         });
     } else {
@@ -363,7 +393,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
 }
 
 async function sendRobuxEmbed(channel) {
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
 
     const robuxItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('robux_') && item.quantity > 0
@@ -400,7 +430,7 @@ async function sendRobuxEmbed(channel) {
 }
 
 async function sendAccountsEmbed(channel) {
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
 
     const accountItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('account_') && item.quantity > 0
@@ -418,7 +448,7 @@ async function sendAccountsEmbed(channel) {
             .setDescription('Choose an item to purchase:')
             .addFields({
                 name: `Username: ${item.username}`,
-                value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\nDescription: ${item.description}`,
+                value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\n${item.description}`,
                 inline: false
             })
             .setTimestamp();
@@ -438,7 +468,7 @@ async function sendAccountsEmbed(channel) {
 async function handleBuyCommand(interaction) {
     const itemId = interaction.options.getString('item');
     const quantity = interaction.options.getInteger('quantity');
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
 
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
@@ -478,8 +508,8 @@ async function handleBuyCommand(interaction) {
 
 async function handleCheckoutCommand(interaction) {
     const orderId = interaction.options.getString('order_id');
-    const orders = loadData('orders.json');
-    const settings = loadData('settings.json');
+    const orders = await loadDataFromFirebase('orders');
+    const settings = await loadDataFromFirebase('settings');
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
@@ -515,7 +545,7 @@ async function handleCheckoutCommand(interaction) {
 }
 
 async function handleOrdersCommand(interaction) {
-    const orders = loadData('orders.json');
+    const orders = await loadDataFromFirebase('orders');
     const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
 
     if (userOrders.length === 0) {
@@ -540,7 +570,7 @@ async function handleOrdersCommand(interaction) {
 
 async function handleStatusCommand(interaction) {
     const orderId = interaction.options.getString('order_id');
-    const orders = loadData('orders.json');
+    const orders = await loadDataFromFirebase('orders');
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
@@ -591,7 +621,7 @@ async function handleAddRobuxCommand(interaction) {
     const price = interaction.options.getNumber('price');
     const taxCovered = interaction.options.getBoolean('tax_covered');
 
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
     const itemId = `robux_${amount}`;
 
     if (!stock[itemId]) {
@@ -602,7 +632,8 @@ async function handleAddRobuxCommand(interaction) {
     stock[itemId].price = price;
     stock[itemId].taxCovered = taxCovered;
 
-    saveData('stock.json', stock);
+    await saveDataToFirebase('stock', stock);
+    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each. Tax Covered: ${taxCovered}.`, 
@@ -624,7 +655,7 @@ async function handleAddAccountCommand(interaction) {
     const premium = interaction.options.getBoolean('premium');
     const description = interaction.options.getString('description');
 
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
     const timestamp = Date.now();
     const itemId = `account_${timestamp}`;
 
@@ -632,13 +663,14 @@ async function handleAddAccountCommand(interaction) {
         name: username,
         username: username,
         description: description,
-        premium: premium,
+        premium: premium ? 'True' : 'False',
         summary: summary,
         quantity: 1,
         price: price
     };
 
-    saveData('stock.json', stock);
+    await saveDataToFirebase('stock', stock);
+    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully added Account "${username}" at ₱${price.toFixed(2)}.`, 
@@ -656,9 +688,10 @@ async function handleOrderChannelCommand(interaction) {
 
     const channel = interaction.options.getChannel('channel');
 
-    const settings = loadData('settings.json');
+    const settings = await loadDataFromFirebase('settings');
     settings.orderChannel = channel.id;
-    saveData('settings.json', settings);
+    await saveDataToFirebase('settings', settings);
+    saveData('settings.json', settings); // Backup to local file
 
     await interaction.reply({ 
         content: `Order notification channel set to ${channel}`, 
@@ -674,14 +707,15 @@ async function handleRemoveStockCommand(interaction) {
     const itemId = interaction.options.getString('item');
     const quantity = interaction.options.getInteger('quantity');
 
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
 
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
 
     stock[itemId].quantity = Math.max(0, stock[itemId].quantity - quantity);
-    saveData('stock.json', stock);
+    await saveDataToFirebase('stock', stock);
+    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully removed ${quantity} from ${itemId}. New quantity: ${stock[itemId].quantity}`, 
@@ -697,14 +731,15 @@ async function handleSetPriceCommand(interaction) {
     const itemId = interaction.options.getString('item');
     const newPrice = interaction.options.getNumber('new_price');
 
-    const stock = loadData('stock.json');
+    const stock = await loadDataFromFirebase('stock');
 
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
 
     stock[itemId].price = newPrice;
-    saveData('stock.json', stock);
+    await saveDataToFirebase('stock', stock);
+    saveData('stock.json', stock); // Backup to local file
 
     await interaction.reply({ 
         content: `Successfully updated ${itemId} price to ₱${newPrice.toFixed(2)}`, 
@@ -717,7 +752,7 @@ async function handleAllOrdersCommand(interaction) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
     }
 
-    const orders = loadData('orders.json');
+    const orders = await loadDataFromFirebase('orders');
     const orderEntries = Object.entries(orders);
 
     if (orderEntries.length === 0) {
@@ -746,14 +781,15 @@ async function handleDeliverCommand(interaction) {
     }
 
     const orderId = interaction.options.getString('order_id');
-    const orders = loadData('orders.json');
+    const orders = await loadDataFromFirebase('orders');
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
     }
 
     orders[orderId].status = 'Delivered';
-    saveData('orders.json', orders);
+    await saveDataToFirebase('orders', orders);
+    saveData('orders.json', orders); // Backup to local file
 
     try {
         const user = await client.users.fetch(orders[orderId].userId);
@@ -786,9 +822,10 @@ async function handleSetPaymentCommand(interaction) {
     const method = interaction.options.getString('method');
     const details = interaction.options.getString('details');
 
-    const settings = loadData('settings.json');
+    const settings = await loadDataFromFirebase('settings');
     settings.paymentMethods[method] = details;
-    saveData('settings.json', settings);
+    await saveDataToFirebase('settings', settings);
+    saveData('settings.json', settings); // Backup to local file
 
     await interaction.reply({ 
         content: `Payment method ${method} updated successfully.`, 
@@ -816,10 +853,13 @@ async function handleAnnounceCommand(interaction) {
 async function handleButton(interaction) {
     if (interaction.customId.startsWith('order_')) {
         const itemId = interaction.customId.replace('order_', '');
-        const stock = loadData('stock.json');
+        const stock = await loadDataFromFirebase('stock');
+
+        console.log(`Button clicked for item: ${itemId}`);
+        console.log(`Available stock items:`, Object.keys(stock));
 
         if (!stock[itemId] || stock[itemId].quantity === 0) {
-            return await interaction.reply({ content: 'This item is out of stock!', ephemeral: true });
+            return await interaction.reply({ content: 'This item is out of stock or not found!', ephemeral: true });
         }
 
         const modal = new ModalBuilder()
@@ -894,8 +934,8 @@ async function handleModal(interaction) {
         const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : 'N/A';
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
 
-        const stock = loadData('stock.json');
-        const orders = loadData('orders.json');
+        const stock = await loadDataFromFirebase('stock');
+        const orders = await loadDataFromFirebase('orders');
 
         if (!stock[itemId]) {
             return await interaction.reply({ content: 'Item not found!', ephemeral: true });
@@ -929,6 +969,10 @@ async function handleModal(interaction) {
         orders[orderId] = order;
         stock[itemId].quantity -= quantity;
 
+        await saveDataToFirebase('orders', orders);
+        await saveDataToFirebase('stock', stock);
+        
+        // Backup to local files
         saveData('orders.json', orders);
         saveData('stock.json', stock);
 
@@ -951,7 +995,7 @@ async function handleModal(interaction) {
         await interaction.reply({ embeds: [embed], ephemeral: true });
 
         // Send order notification to order channel
-        const settings = loadData('settings.json');
+        const settings = await loadDataFromFirebase('settings');
         if (settings.orderChannel) {
             try {
                 const orderChannel = await client.channels.fetch(settings.orderChannel);
