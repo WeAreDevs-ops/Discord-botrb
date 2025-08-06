@@ -383,46 +383,29 @@ async function sendAccountsEmbed(channel) {
         return;
     }
 
-    const embed = new EmbedBuilder()
-        .setTitle('Available Items')
-        .setColor(0x2f3136)
-        .setDescription('Choose an item to purchase:')
-        .setTimestamp();
-
-    const actionRows = [];
-    let currentRow = new ActionRowBuilder();
-    let buttonCount = 0;
-
+    // Send each account as a separate embed
     for (const [itemId, item] of accountItems) {
-        const fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.summary}`;
+        const embed = new EmbedBuilder()
+            .setTitle('Available Items')
+            .setColor(0x2f3136)
+            .setDescription('Choose an item to purchase:')
+            .addFields({
+                name: item.name,
+                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.summary}`,
+                inline: false
+            })
+            .setTimestamp();
 
-        embed.addFields({
-            name: item.name,
-            value: fieldValue,
-            inline: false
-        });
-
-        if (buttonCount < 25) {
-            if (currentRow.components.length === 5) {
-                actionRows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-            }
-
-            currentRow.addComponents(
+        const actionRow = new ActionRowBuilder()
+            .addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
                     .setLabel('Order Account')
                     .setStyle(ButtonStyle.Primary)
             );
-            buttonCount++;
-        }
-    }
 
-    if (currentRow.components.length > 0) {
-        actionRows.push(currentRow);
+        await channel.send({ embeds: [embed], components: [actionRow] });
     }
-
-    await channel.send({ embeds: [embed], components: actionRows });
 }
 
 async function handleBuyCommand(interaction) {
