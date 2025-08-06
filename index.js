@@ -49,11 +49,7 @@ function generateOrderId() {
 function initializeData() {
     const stockFile = loadData('stock.json');
     if (Object.keys(stockFile).length === 0) {
-        saveData('stock.json', {
-            'robux_1000': { name: '1000 Robux', quantity: 50, price: 10.00 },
-            'robux_5000': { name: '5000 Robux', quantity: 20, price: 45.00 },
-            'account_premium': { name: 'Premium Account', quantity: 10, price: 25.00 }
-        });
+        saveData('stock.json', {});
     }
 
     const ordersFile = loadData('orders.json');
@@ -191,7 +187,7 @@ const commands = [
                 .addChoices(
                     { name: 'PayPal', value: 'paypal' },
                     { name: 'CashApp', value: 'cashapp' },
-                    { name: 'Gcash', value: 'gcash' }
+                    { name: 'Crypto', value: 'crypto' }
                 ))
         .addStringOption(option =>
             option.setName('details')
@@ -313,7 +309,7 @@ async function handleShopCommand(interaction) {
     for (const [itemId, item] of Object.entries(stock)) {
         embed.addFields({
             name: item.name,
-            value: `Price: $${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
             inline: true
         });
 
@@ -422,7 +418,7 @@ async function handleOrdersCommand(interaction) {
     userOrders.slice(0, 10).forEach(([orderId, order]) => {
         embed.addFields({
             name: `Order ${orderId}`,
-            value: `${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: $${order.totalPrice.toFixed(2)}`,
+            value: `${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
             inline: true
         });
     });
@@ -494,7 +490,7 @@ async function handleAddStockCommand(interaction) {
     saveData('stock.json', stock);
 
     await interaction.reply({ 
-        content: `Successfully added ${quantity} of ${itemId} at $${price.toFixed(2)} each.`, 
+        content: `Successfully added ${quantity} of ${itemId} at ₱${price.toFixed(2)} each.`, 
         ephemeral: true 
     });
 }
@@ -540,7 +536,7 @@ async function handleSetPriceCommand(interaction) {
     saveData('stock.json', stock);
 
     await interaction.reply({ 
-        content: `Successfully updated ${itemId} price to $${newPrice.toFixed(2)}`, 
+        content: `Successfully updated ${itemId} price to ₱${newPrice.toFixed(2)}`, 
         ephemeral: true 
     });
 }
@@ -565,7 +561,7 @@ async function handleAllOrdersCommand(interaction) {
     orderEntries.slice(0, 10).forEach(([orderId, order]) => {
         embed.addFields({
             name: `Order ${orderId}`,
-            value: `User: <@${order.userId}>\n${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: $${order.totalPrice.toFixed(2)}`,
+            value: `User: <@${order.userId}>\n${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
             inline: true
         });
     });
@@ -749,7 +745,7 @@ async function handleModal(interaction) {
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
                 { name: 'Quantity', value: quantity.toString(), inline: true },
-                { name: 'Total Price', value: `$${totalPrice.toFixed(2)}`, inline: true },
+                { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
                 { name: 'Roblox Username', value: username, inline: true },
                 { name: 'Payment Method', value: paymentMethod, inline: true },
                 { name: 'Next Steps', value: `Use /checkout ${orderId} to view payment instructions.`, inline: false }
@@ -767,7 +763,7 @@ async function handleModal(interaction) {
                 .addFields(
                     { name: 'Item', value: order.itemName },
                     { name: 'Quantity', value: quantity.toString() },
-                    { name: 'Total', value: `$${totalPrice.toFixed(2)}` }
+                    { name: 'Total', value: `₱${totalPrice.toFixed(2)}` }
                 )
                 .setTimestamp();
 
