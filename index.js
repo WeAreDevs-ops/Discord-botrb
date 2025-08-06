@@ -327,57 +327,41 @@ async function handleSlashCommand(interaction) {
 async function sendShopEmbed(channel) {
     const stock = loadData('stock.json');
     
-    const embed = new EmbedBuilder()
-        .setTitle('Available Items')
-        .setColor(0x2f3136)
-        .setTimestamp();
-
     const availableItems = Object.entries(stock).filter(([_, item]) => item.quantity > 0);
 
     if (availableItems.length === 0) {
-        embed.setDescription('No items available at the moment. Please check back later!');
+        const embed = new EmbedBuilder()
+            .setTitle('Available Items')
+            .setColor(0x2f3136)
+            .setDescription('No items available at the moment. Please check back later!')
+            .setTimestamp();
         await channel.send({ embeds: [embed] });
         return;
     }
 
-    embed.setDescription('Choose an item to purchase:');
-
-    // Create action rows (each can hold up to 5 buttons, Discord allows up to 5 action rows)
-    const actionRows = [];
-    let currentRow = new ActionRowBuilder();
-    let buttonCount = 0;
-
+    // Send separate embed for each item
     for (const [itemId, item] of availableItems) {
-        embed.addFields({
-            name: item.name,
-            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
-            inline: true
-        });
+        const embed = new EmbedBuilder()
+            .setTitle('Available Items')
+            .setColor(0x2f3136)
+            .setDescription('Choose an item to purchase:')
+            .addFields({
+                name: item.name,
+                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+                inline: false
+            })
+            .setTimestamp();
 
-        // Add button if we haven't reached the maximum (25 buttons total: 5 rows × 5 buttons)
-        if (buttonCount < 25) {
-            // If current row is full (5 buttons), start a new row
-            if (currentRow.components.length === 5) {
-                actionRows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-            }
-
-            currentRow.addComponents(
+        const actionRow = new ActionRowBuilder()
+            .addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
                     .setLabel(`Order ${item.name}`)
                     .setStyle(ButtonStyle.Primary)
             );
-            buttonCount++;
-        }
-    }
 
-    // Add the last row if it has components
-    if (currentRow.components.length > 0) {
-        actionRows.push(currentRow);
+        await channel.send({ embeds: [embed], components: [actionRow] });
     }
-
-    await channel.send({ embeds: [embed], components: actionRows });
 }
 
 async function handleBuyCommand(interaction) {
@@ -397,9 +381,13 @@ async function handleBuyCommand(interaction) {
         .setCustomId(`buy_modal_${itemId}_${quantity}`)
         .setTitle('Purchase Information');
 
+    // Check if it's a Robux item to change the label
+    const isRobuxItem = itemId.startsWith('robux_');
+    const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
+
     const usernameInput = new TextInputBuilder()
         .setCustomId('username')
-        .setLabel('Your Roblox Username')
+        .setLabel(usernameLabel)
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
@@ -772,9 +760,13 @@ async function handleButton(interaction) {
             .setRequired(true)
             .setValue('1');
 
+        // Check if it's a Robux item to change the label
+        const isRobuxItem = itemId.startsWith('robux_');
+        const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
+        
         const usernameInput = new TextInputBuilder()
             .setCustomId('username')
-            .setLabel('Your Roblox Username')
+            .setLabel(usernameLabel)
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
 
@@ -848,6 +840,10 @@ async function handleModal(interaction) {
         saveData('orders.json', orders);
         saveData('stock.json', stock);
 
+        // Check if it's a Robux item to change the label
+        const isRobuxItem = itemId.startsWith('robux_');
+        const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+
         const embed = new EmbedBuilder()
             .setTitle('Order Placed Successfully!')
             .setColor(0x2f3136)
@@ -856,7 +852,7 @@ async function handleModal(interaction) {
                 { name: 'Item', value: order.itemName, inline: true },
                 { name: 'Quantity', value: quantity.toString(), inline: true },
                 { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
-                { name: 'Roblox Username', value: username, inline: true },
+                { name: usernameFieldName, value: username, inline: true },
                 { name: 'Payment Method', value: paymentMethod, inline: true },
                 { name: 'Next Steps', value: `Use /checkout ${orderId} to view payment instructions.`, inline: false }
             )
@@ -869,6 +865,10 @@ async function handleModal(interaction) {
         if (settings.orderChannel) {
             try {
                 const orderChannel = await client.channels.fetch(settings.orderChannel);
+                // Check if it's a Robux item to change the label
+                const isRobuxItem = itemId.startsWith('robux_');
+                const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+
                 const orderEmbed = new EmbedBuilder()
                     .setTitle('Pending Orders')
                     .setColor(0xffff00)
@@ -876,7 +876,7 @@ async function handleModal(interaction) {
                         name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
                         iconURL: interaction.user.displayAvatarURL()
                     })
-                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**Roblox Username:** ${username}\n**Payment Method:** ${paymentMethod}`)
+                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName}:** ${username}\n**Payment Method:** ${paymentMethod}`)
                     .setTimestamp();
 
                 await orderChannel.send({ embeds: [orderEmbed] });
