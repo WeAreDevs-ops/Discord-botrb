@@ -1130,10 +1130,34 @@ async function handleModal(interaction) {
 
         const paymentMethod = order.paymentMethod.toLowerCase();
         if (settings.paymentMethods[paymentMethod]) {
-            embed.addFields({
-                name: '💰 Payment Instructions',
-                value: settings.paymentMethods[paymentMethod]
-            });
+            const paymentDetails = settings.paymentMethods[paymentMethod];
+            
+            // Check if payment details contain an image URL
+            if (paymentDetails.includes('http') && (paymentDetails.includes('.png') || paymentDetails.includes('.jpg') || paymentDetails.includes('.jpeg') || paymentDetails.includes('.gif'))) {
+                // Extract the image URL from the payment details
+                const urlMatch = paymentDetails.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif))/i);
+                if (urlMatch) {
+                    embed.setImage(urlMatch[0]);
+                    // Remove the image URL from the text and add remaining text as field
+                    const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
+                    if (textOnly) {
+                        embed.addFields({
+                            name: '💰 Payment Instructions',
+                            value: textOnly
+                        });
+                    }
+                } else {
+                    embed.addFields({
+                        name: '💰 Payment Instructions',
+                        value: paymentDetails
+                    });
+                }
+            } else {
+                embed.addFields({
+                    name: '💰 Payment Instructions',
+                    value: paymentDetails
+                });
+            }
         }
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
