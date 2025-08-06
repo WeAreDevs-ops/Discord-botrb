@@ -319,6 +319,41 @@ async function handleSlashCommand(interaction) {
     }
 }
 
+async function sendSingleItemEmbed(channel, itemId, item) {
+    if (item.quantity <= 0) return;
+
+    const embed = new EmbedBuilder()
+        .setTitle('Available Items')
+        .setColor(0x2f3136)
+        .setDescription('Choose an item to purchase:')
+        .setTimestamp();
+
+    // Different field format for accounts vs robux
+    if (itemId.startsWith('account_')) {
+        embed.addFields({
+            name: item.name,
+            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.summary}`,
+            inline: false
+        });
+    } else {
+        embed.addFields({
+            name: item.name,
+            value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+            inline: false
+        });
+    }
+
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId(`order_${itemId}`)
+                .setLabel(itemId.startsWith('account_') ? 'Order Account' : `Order ${item.name}`)
+                .setStyle(ButtonStyle.Primary)
+        );
+
+    await channel.send({ embeds: [embed], components: [actionRow] });
+}
+
 async function sendRobuxEmbed(channel) {
     const stock = loadData('stock.json');
     
@@ -562,6 +597,9 @@ async function handleAddRobuxCommand(interaction) {
         content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each.`, 
         ephemeral: true 
     });
+
+    // Send embed for this specific Robux item
+    await sendSingleItemEmbed(interaction.channel, itemId, stock[itemId]);
 }
 
 async function handleAddAccountCommand(interaction) {
@@ -594,6 +632,9 @@ async function handleAddAccountCommand(interaction) {
         content: `Successfully added ${premiumText} Account "${description}" at ₱${price.toFixed(2)}.`, 
         ephemeral: true 
     });
+
+    // Send embed for this specific account
+    await sendSingleItemEmbed(interaction.channel, itemId, stock[itemId]);
 }
 
 async function handleOrderChannelCommand(interaction) {
