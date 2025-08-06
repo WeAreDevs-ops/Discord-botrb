@@ -88,9 +88,8 @@ async function initializeData() {
     if (Object.keys(settings).length === 0) {
         const defaultSettings = {
             paymentMethods: {
-                paypal: 'Send payment to: example@paypal.com',
-                cashapp: 'Send payment to: $ExampleTag',
-                crypto: 'Bitcoin address: 1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
+                gcash: 'Gcash Number: [Your Number Here] - Image: [QR Code URL]',
+                paypal: 'Send payment to: example@paypal.com'
             },
             orderChannel: null,
             deliveryChannel: null // Added deliveryChannel initialization
@@ -253,9 +252,8 @@ const commands = [
                 .setDescription('Payment method')
                 .setRequired(true)
                 .addChoices(
-                    { name: 'PayPal', value: 'paypal' },
-                    { name: 'CashApp', value: 'cashapp' },
-                    { name: 'Crypto', value: 'crypto' }
+                    { name: 'Gcash', value: 'gcash' },
+                    { name: 'PayPal', value: 'paypal' }
                 ))
         .addStringOption(option =>
             option.setName('details')
@@ -511,7 +509,7 @@ async function handleBuyCommand(interaction) {
         .setCustomId('payment_method')
         .setLabel('Preferred Payment Method')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('PayPal, CashApp, Crypto, etc.')
+        .setPlaceholder('Gcash, PayPal')
         .setRequired(true);
 
     const firstRow = new ActionRowBuilder().addComponents(usernameInput);
@@ -968,7 +966,7 @@ async function handleButton(interaction) {
                 .setCustomId('payment_method')
                 .setLabel('Preferred Payment Method')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('PayPal, CashApp, Crypto, etc.')
+                .setPlaceholder('Gcash, PayPal')
                 .setRequired(true);
 
             const firstRow = new ActionRowBuilder().addComponents(quantityInput);
@@ -982,7 +980,7 @@ async function handleButton(interaction) {
                 .setCustomId('payment_method')
                 .setLabel('Preferred Payment Method')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('PayPal, CashApp, Crypto, etc.')
+                .setPlaceholder('Gcash, PayPal')
                 .setRequired(true);
 
             const firstRow = new ActionRowBuilder().addComponents(paymentMethodInput);
