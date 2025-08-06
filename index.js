@@ -29,9 +29,9 @@ const client = new Client({
 });
 
 // Firebase data management functions
-async function loadDataFromFirebase(collection) {
+async function loadDataFromFirebase(collection, guildId = 'global') {
     try {
-        const snapshot = await db.ref(collection).once('value');
+        const snapshot = await db.ref(`${guildId}/${collection}`).once('value');
         return snapshot.val() || {};
     } catch (error) {
         console.error(`Error loading ${collection} from Firebase:`, error);
@@ -39,9 +39,9 @@ async function loadDataFromFirebase(collection) {
     }
 }
 
-async function saveDataToFirebase(collection, data) {
+async function saveDataToFirebase(collection, data, guildId = 'global') {
     try {
-        await db.ref(collection).set(data);
+        await db.ref(`${guildId}/${collection}`).set(data);
     } catch (error) {
         console.error(`Error saving ${collection} to Firebase:`, error);
     }
@@ -79,11 +79,11 @@ function generateOrderId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// Initialize data
-async function initializeData() {
-    const stock = await loadDataFromFirebase('stock');
-    const orders = await loadDataFromFirebase('orders');
-    const settings = await loadDataFromFirebase('settings');
+// Initialize data for a specific guild
+async function initializeGuildData(guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
+    const orders = await loadDataFromFirebase('orders', guildId);
+    const settings = await loadDataFromFirebase('settings', guildId);
 
     if (Object.keys(settings).length === 0) {
         const defaultSettings = {
@@ -92,9 +92,16 @@ async function initializeData() {
                 paypal: 'Send payment to: example@paypal.com'
             },
             orderChannel: null,
-            deliveryChannel: null // Added deliveryChannel initialization
+            deliveryChannel: null
         };
-        await saveDataToFirebase('settings', defaultSettings);
+        await saveDataToFirebase('settings', defaultSettings, guildId);
+    }
+}
+
+// Initialize data for all guilds the bot is in
+async function initializeData() {
+    for (const guild of client.guilds.cache.values()) {
+        await initializeGuildData(guild.id);
     }
 }
 
@@ -103,24 +110,11 @@ const commands = [
     // User commands
     new SlashCommandBuilder()
         .setName('buy')
-        .setDescription('Place an order for an item')
-        .addStringOption(option =>
-            option.setName('item')
-                .setDescription('Item ID to purchase')
-                .setRequired(true))
-        .addIntegerOption(option =>
-            option.setName('quantity')
-                .setDescription('Quantity to purchase')
-                .setRequired(true)
-                .setMinValue(1)),
+        .setDescription('Open interactive purchase panel'),
 
     new SlashCommandBuilder()
         .setName('checkout')
-        .setDescription('View payment instructions for an order')
-        .addStringOption(option =>
-            option.setName('order_id')
-                .setDescription('Order ID to checkout')
-                .setRequired(true)),
+        .setDescription('View payment instructions for an order'),
 
     new SlashCommandBuilder()
         .setName('orders')
@@ -128,11 +122,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('status')
-        .setDescription('Check the status of an order')
-        .addStringOption(option =>
-            option.setName('order_id')
-                .setDescription('Order ID to check')
-                .setRequired(true)),
+        .setDescription('Check the status of an order'),
 
     new SlashCommandBuilder()
         .setName('help')
@@ -297,6 +287,12 @@ client.once('ready', async () => {
     await registerCommands();
 });
 
+// Initialize data when bot joins a new guild
+client.on('guildCreate', async (guild) => {
+    console.log(`Joined new guild: ${guild.name} (${guild.id})`);
+    await initializeGuildData(guild.id);
+});
+
 // Command handling
 client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
@@ -319,6 +315,7 @@ async function handleSlashCommand(interaction) {
             case 'checkout':
                 await handleCheckoutCommand(interaction);
                 break;
+            
             case 'orders':
                 await handleOrdersCommand(interaction);
                 break;
@@ -406,8 +403,8 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     await channel.send({ embeds: [embed], components: [actionRow] });
 }
 
-async function sendRobuxEmbed(channel) {
-    const stock = await loadDataFromFirebase('stock');
+async function sendRobuxEmbed(channel, guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
 
     const robuxItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('robux_') && item.quantity > 0
@@ -443,8 +440,8 @@ async function sendRobuxEmbed(channel) {
     }
 }
 
-async function sendAccountsEmbed(channel) {
-    const stock = await loadDataFromFirebase('stock');
+async function sendAccountsEmbed(channel, guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
 
     const accountItems = Object.entries(stock).filter(([itemId, item]) => 
         itemId.startsWith('account_') && item.quantity > 0
@@ -480,86 +477,79 @@ async function sendAccountsEmbed(channel) {
 }
 
 async function handleBuyCommand(interaction) {
-    const itemId = interaction.options.getString('item');
-    const quantity = interaction.options.getInteger('quantity');
-    const stock = await loadDataFromFirebase('stock');
+    const guildId = interaction.guildId;
+    const stock = await loadDataFromFirebase('stock', guildId);
 
-    if (!stock[itemId]) {
-        return await interaction.reply({ content: 'Item not found!', ephemeral: true });
-    }
+    // Filter available items (quantity > 0)
+    const availableItems = Object.entries(stock).filter(([_, item]) => item.quantity > 0);
 
-    if (stock[itemId].quantity < quantity) {
-        return await interaction.reply({ content: 'Not enough stock available!', ephemeral: true });
-    }
-
-    const modal = new ModalBuilder()
-        .setCustomId(`buy_modal_${itemId}_${quantity}`)
-        .setTitle('Purchase Information');
-
-    const isRobuxItem = itemId.startsWith('robux_');
-    const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
-
-    const usernameInput = new TextInputBuilder()
-        .setCustomId('username')
-        .setLabel(usernameLabel)
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const paymentMethodInput = new TextInputBuilder()
-        .setCustomId('payment_method')
-        .setLabel('Preferred Payment Method')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Gcash, PayPal')
-        .setRequired(true);
-
-    const firstRow = new ActionRowBuilder().addComponents(usernameInput);
-    const secondRow = new ActionRowBuilder().addComponents(paymentMethodInput);
-
-    modal.addComponents(firstRow, secondRow);
-
-    await interaction.showModal(modal);
-}
-
-async function handleCheckoutCommand(interaction) {
-    const orderId = interaction.options.getString('order_id');
-    const orders = await loadDataFromFirebase('orders');
-    const settings = await loadDataFromFirebase('settings');
-
-    if (!orders[orderId]) {
-        return await interaction.reply({ content: 'Order not found!', ephemeral: true });
-    }
-
-    const order = orders[orderId];
-
-    if (order.userId !== interaction.user.id) {
-        return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
+    if (availableItems.length === 0) {
+        return await interaction.reply({ content: 'No items are currently available for purchase!', ephemeral: true });
     }
 
     const embed = new EmbedBuilder()
-        .setTitle(`Checkout - Order ${orderId}`)
+        .setTitle('🛒 Purchase Panel')
         .setColor(0x2f3136)
-        .addFields(
-            { name: 'Item', value: order.itemName, inline: true },
-            { name: 'Quantity', value: order.quantity.toString(), inline: true },
-            { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
-            { name: 'Status', value: order.status, inline: true },
-            { name: 'Payment Method', value: order.paymentMethod, inline: true }
-        )
+        .setDescription('Click the button below to select an item and place your order.')
+        .addFields({
+            name: 'Available Items:',
+            value: availableItems.map(([itemId, item]) => {
+                if (itemId.startsWith('account_')) {
+                    return `**${item.username}** - ₱${item.price.toFixed(2)} (${item.summary})`;
+                } else {
+                    return `**${item.name}** - ₱${item.price.toFixed(2)} (Stock: ${item.quantity})`;
+                }
+            }).join('\n'),
+            inline: false
+        })
+        .addFields({
+            name: 'How to use:',
+            value: '1. Click the "Select Item" button\n2. Enter the Item ID in the modal\n3. Complete your purchase details',
+            inline: false
+        })
         .setTimestamp();
 
-    const paymentMethod = order.paymentMethod.toLowerCase();
-    if (settings.paymentMethods[paymentMethod]) {
-        embed.addFields({
-            name: 'Payment Instructions',
-            value: settings.paymentMethods[paymentMethod]
-        });
-    }
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('buy_modal')
+                .setLabel('Select Item')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🛒')
+        );
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
 }
 
+async function handleCheckoutCommand(interaction) {
+    const embed = new EmbedBuilder()
+        .setTitle('💳 Checkout Panel')
+        .setColor(0x2f3136)
+        .setDescription('Click the button below to enter your Order ID and view payment instructions.')
+        .addFields({
+            name: 'How to use:',
+            value: '1. Click the "Enter Order ID" button\n2. Input your Order ID in the modal\n3. View your payment instructions',
+            inline: false
+        })
+        .setTimestamp();
+
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('checkout_modal')
+                .setLabel('Enter Order ID')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('💳')
+        );
+
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
+}
+
+
+
 async function handleOrdersCommand(interaction) {
-    const orders = await loadDataFromFirebase('orders');
+    const guildId = interaction.guildId;
+    const orders = await loadDataFromFirebase('orders', guildId);
     const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
 
     if (userOrders.length === 0) {
@@ -583,31 +573,27 @@ async function handleOrdersCommand(interaction) {
 }
 
 async function handleStatusCommand(interaction) {
-    const orderId = interaction.options.getString('order_id');
-    const orders = await loadDataFromFirebase('orders');
-
-    if (!orders[orderId]) {
-        return await interaction.reply({ content: 'Order not found!', ephemeral: true });
-    }
-
-    const order = orders[orderId];
-
-    if (order.userId !== interaction.user.id) {
-        return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
-    }
-
     const embed = new EmbedBuilder()
-        .setTitle(`Order Status - ${orderId}`)
+        .setTitle('📊 Order Status Panel')
         .setColor(0x2f3136)
-        .addFields(
-            { name: 'Item', value: order.itemName, inline: true },
-            { name: 'Quantity', value: order.quantity.toString(), inline: true },
-            { name: 'Status', value: order.status, inline: true },
-            { name: 'Order Date', value: new Date(order.timestamp).toLocaleString(), inline: true }
-        )
+        .setDescription('Click the button below to enter your Order ID and check the status.')
+        .addFields({
+            name: 'How to use:',
+            value: '1. Click the "Check Status" button\n2. Input your Order ID in the modal\n3. View your order status and details',
+            inline: false
+        })
         .setTimestamp();
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('status_modal')
+                .setLabel('Check Status')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('📊')
+        );
+
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
 }
 
 async function handleHelpCommand(interaction) {
@@ -634,8 +620,9 @@ async function handleAddRobuxCommand(interaction) {
     const quantity = interaction.options.getInteger('quantity');
     const price = interaction.options.getNumber('price');
     const taxCovered = interaction.options.getBoolean('tax_covered');
+    const guildId = interaction.guildId;
 
-    const stock = await loadDataFromFirebase('stock');
+    const stock = await loadDataFromFirebase('stock', guildId);
     const itemId = `robux_${amount}`;
 
     if (!stock[itemId]) {
@@ -646,7 +633,7 @@ async function handleAddRobuxCommand(interaction) {
     stock[itemId].price = price;
     stock[itemId].taxCovered = taxCovered;
 
-    await saveDataToFirebase('stock', stock);
+    await saveDataToFirebase('stock', stock, guildId);
 
     console.log(`Created Robux item with ID: ${itemId}`);
     console.log(`Item data:`, stock[itemId]);
@@ -670,8 +657,9 @@ async function handleAddAccountCommand(interaction) {
     const price = interaction.options.getNumber('price');
     const premium = interaction.options.getBoolean('premium');
     const description = interaction.options.getString('description');
+    const guildId = interaction.guildId;
 
-    const stock = await loadDataFromFirebase('stock');
+    const stock = await loadDataFromFirebase('stock', guildId);
     const timestamp = Date.now();
     const itemId = `account_${timestamp}`;
 
@@ -685,7 +673,7 @@ async function handleAddAccountCommand(interaction) {
         price: price
     };
 
-    await saveDataToFirebase('stock', stock);
+    await saveDataToFirebase('stock', stock, guildId);
 
     console.log(`Created Account item with ID: ${itemId}`);
     console.log(`Item data:`, stock[itemId]);
@@ -705,10 +693,11 @@ async function handleOrderChannelCommand(interaction) {
     }
 
     const channel = interaction.options.getChannel('channel');
+    const guildId = interaction.guildId;
 
-    const settings = await loadDataFromFirebase('settings');
+    const settings = await loadDataFromFirebase('settings', guildId);
     settings.orderChannel = channel.id;
-    await saveDataToFirebase('settings', settings);
+    await saveDataToFirebase('settings', settings, guildId);
 
     await interaction.reply({ 
         content: `Order notification channel set to ${channel}`, 
@@ -723,10 +712,11 @@ async function handleDeliveryChannelCommand(interaction) {
     }
 
     const channel = interaction.options.getChannel('channel');
+    const guildId = interaction.guildId;
 
-    const settings = await loadDataFromFirebase('settings');
+    const settings = await loadDataFromFirebase('settings', guildId);
     settings.deliveryChannel = channel.id;
-    await saveDataToFirebase('settings', settings);
+    await saveDataToFirebase('settings', settings, guildId);
 
     await interaction.reply({ 
         content: `Delivery notification channel set to ${channel}`, 
@@ -741,15 +731,16 @@ async function handleRemoveStockCommand(interaction) {
 
     const itemId = interaction.options.getString('item');
     const quantity = interaction.options.getInteger('quantity');
+    const guildId = interaction.guildId;
 
-    const stock = await loadDataFromFirebase('stock');
+    const stock = await loadDataFromFirebase('stock', guildId);
 
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
 
     stock[itemId].quantity = Math.max(0, stock[itemId].quantity - quantity);
-    await saveDataToFirebase('stock', stock);
+    await saveDataToFirebase('stock', stock, guildId);
 
     await interaction.reply({ 
         content: `Successfully removed ${quantity} from ${itemId}. New quantity: ${stock[itemId].quantity}`, 
@@ -764,15 +755,16 @@ async function handleSetPriceCommand(interaction) {
 
     const itemId = interaction.options.getString('item');
     const newPrice = interaction.options.getNumber('new_price');
+    const guildId = interaction.guildId;
 
-    const stock = await loadDataFromFirebase('stock');
+    const stock = await loadDataFromFirebase('stock', guildId);
 
     if (!stock[itemId]) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
 
     stock[itemId].price = newPrice;
-    await saveDataToFirebase('stock', stock);
+    await saveDataToFirebase('stock', stock, guildId);
 
     await interaction.reply({ 
         content: `Successfully updated ${itemId} price to ₱${newPrice.toFixed(2)}`, 
@@ -785,7 +777,8 @@ async function handleAllOrdersCommand(interaction) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
     }
 
-    const orders = await loadDataFromFirebase('orders');
+    const guildId = interaction.guildId;
+    const orders = await loadDataFromFirebase('orders', guildId);
     const orderEntries = Object.entries(orders);
 
     if (orderEntries.length === 0) {
@@ -814,8 +807,9 @@ async function handleDeliverCommand(interaction) {
     }
 
     const orderId = interaction.options.getString('order_id');
-    const orders = await loadDataFromFirebase('orders');
-    const settings = await loadDataFromFirebase('settings');
+    const guildId = interaction.guildId;
+    const orders = await loadDataFromFirebase('orders', guildId);
+    const settings = await loadDataFromFirebase('settings', guildId);
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
@@ -825,7 +819,7 @@ async function handleDeliverCommand(interaction) {
 
     // Update order status to delivered
     orders[orderId].status = 'Delivered';
-    await saveDataToFirebase('orders', orders);
+    await saveDataToFirebase('orders', orders, guildId);
 
     // Send delivery notification to the delivery channel
     if (settings.deliveryChannel) {
@@ -885,10 +879,11 @@ async function handleSetPaymentCommand(interaction) {
 
     const method = interaction.options.getString('method');
     const details = interaction.options.getString('details');
+    const guildId = interaction.guildId;
 
-    const settings = await loadDataFromFirebase('settings');
+    const settings = await loadDataFromFirebase('settings', guildId);
     settings.paymentMethods[method] = details;
-    await saveDataToFirebase('settings', settings);
+    await saveDataToFirebase('settings', settings, guildId);
 
     await interaction.reply({ 
         content: `Payment method ${method} updated successfully.`, 
@@ -916,9 +911,76 @@ async function handleAnnounceCommand(interaction) {
 
 // Button handling
 async function handleButton(interaction) {
+    if (interaction.customId === 'checkout_modal') {
+        const modal = new ModalBuilder()
+            .setCustomId('checkout_input_modal')
+            .setTitle('Checkout - Enter Order ID');
+
+        const orderIdInput = new TextInputBuilder()
+            .setCustomId('order_id_input')
+            .setLabel('Order ID')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter your Order ID here...')
+            .setRequired(true);
+
+        const firstRow = new ActionRowBuilder().addComponents(orderIdInput);
+        modal.addComponents(firstRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (interaction.customId === 'buy_modal') {
+        const modal = new ModalBuilder()
+            .setCustomId('buy_input_modal')
+            .setTitle('Purchase - Enter Item Details');
+
+        const itemIdInput = new TextInputBuilder()
+            .setCustomId('item_id_input')
+            .setLabel('Item ID')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter Item ID (e.g., robux_1000, account_123)')
+            .setRequired(true);
+
+        const quantityInput = new TextInputBuilder()
+            .setCustomId('quantity_input')
+            .setLabel('Quantity (For Robux items only, leave 1 for accounts)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('1')
+            .setValue('1')
+            .setRequired(true);
+
+        const firstRow = new ActionRowBuilder().addComponents(itemIdInput);
+        const secondRow = new ActionRowBuilder().addComponents(quantityInput);
+        modal.addComponents(firstRow, secondRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (interaction.customId === 'status_modal') {
+        const modal = new ModalBuilder()
+            .setCustomId('status_input_modal')
+            .setTitle('Order Status - Enter Order ID');
+
+        const orderIdInput = new TextInputBuilder()
+            .setCustomId('order_id_input')
+            .setLabel('Order ID')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter your Order ID here...')
+            .setRequired(true);
+
+        const firstRow = new ActionRowBuilder().addComponents(orderIdInput);
+        modal.addComponents(firstRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+    
     if (interaction.customId.startsWith('order_')) {
         const itemId = interaction.customId.replace('order_', '');
-        const stock = await loadDataFromFirebase('stock');
+        const guildId = interaction.guildId;
+        const stock = await loadDataFromFirebase('stock', guildId);
 
         console.log(`Button clicked for item: ${itemId}`);
         console.log(`Available stock items:`, Object.keys(stock));
@@ -985,6 +1047,122 @@ async function handleButton(interaction) {
 
 // Modal handling
 async function handleModal(interaction) {
+    if (interaction.customId === 'checkout_input_modal') {
+        const orderId = interaction.fields.getTextInputValue('order_id_input');
+        const guildId = interaction.guildId;
+        const orders = await loadDataFromFirebase('orders', guildId);
+        const settings = await loadDataFromFirebase('settings', guildId);
+
+        if (!orders[orderId]) {
+            return await interaction.reply({ content: 'Order not found! Please check your Order ID and try again.', ephemeral: true });
+        }
+
+        const order = orders[orderId];
+
+        if (order.userId !== interaction.user.id) {
+            return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`✅ Checkout - Order ${orderId}`)
+            .setColor(0x00ff00)
+            .addFields(
+                { name: 'Item', value: order.itemName, inline: true },
+                { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
+                { name: 'Status', value: order.status, inline: true },
+                { name: 'Payment Method', value: order.paymentMethod, inline: true },
+                { name: 'Order Date', value: new Date(order.timestamp).toLocaleString(), inline: true }
+            )
+            .setTimestamp();
+
+        const paymentMethod = order.paymentMethod.toLowerCase();
+        if (settings.paymentMethods[paymentMethod]) {
+            embed.addFields({
+                name: '💰 Payment Instructions',
+                value: settings.paymentMethods[paymentMethod]
+            });
+        }
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+    }
+
+    if (interaction.customId === 'buy_input_modal') {
+        const itemId = interaction.fields.getTextInputValue('item_id_input');
+        const quantity = parseInt(interaction.fields.getTextInputValue('quantity_input')) || 1;
+        const guildId = interaction.guildId;
+        const stock = await loadDataFromFirebase('stock', guildId);
+
+        if (!stock[itemId]) {
+            return await interaction.reply({ content: 'Item not found! Please check the Item ID and try again.', ephemeral: true });
+        }
+
+        if (stock[itemId].quantity < quantity) {
+            return await interaction.reply({ content: 'Not enough stock available!', ephemeral: true });
+        }
+
+        const modal = new ModalBuilder()
+            .setCustomId(`buy_modal_${itemId}_${quantity}`)
+            .setTitle('Purchase Information');
+
+        const isRobuxItem = itemId.startsWith('robux_');
+        const usernameLabel = isRobuxItem ? 'Gamepass link' : 'Your Roblox Username';
+
+        const usernameInput = new TextInputBuilder()
+            .setCustomId('username')
+            .setLabel(usernameLabel)
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const paymentMethodInput = new TextInputBuilder()
+            .setCustomId('payment_method')
+            .setLabel('Preferred Payment Method')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Gcash, PayPal')
+            .setRequired(true);
+
+        const firstRow = new ActionRowBuilder().addComponents(usernameInput);
+        const secondRow = new ActionRowBuilder().addComponents(paymentMethodInput);
+
+        modal.addComponents(firstRow, secondRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (interaction.customId === 'status_input_modal') {
+        const orderId = interaction.fields.getTextInputValue('order_id_input');
+        const guildId = interaction.guildId;
+        const orders = await loadDataFromFirebase('orders', guildId);
+
+        if (!orders[orderId]) {
+            return await interaction.reply({ content: 'Order not found! Please check your Order ID and try again.', ephemeral: true });
+        }
+
+        const order = orders[orderId];
+
+        if (order.userId !== interaction.user.id) {
+            return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📊 Order Status - ${orderId}`)
+            .setColor(0x2f3136)
+            .addFields(
+                { name: 'Item', value: order.itemName, inline: true },
+                { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                { name: 'Status', value: order.status, inline: true },
+                { name: 'Order Date', value: new Date(order.timestamp).toLocaleString(), inline: true },
+                { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
+                { name: 'Payment Method', value: order.paymentMethod, inline: true }
+            )
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+    }
+    
     if (interaction.customId.startsWith('buy_modal_')) {
         // Extract everything after "buy_modal_" up to the last underscore (which is the quantity)
         const modalData = interaction.customId.replace('buy_modal_', '');
@@ -1006,9 +1184,10 @@ async function handleModal(interaction) {
         // For accounts, username is not needed. For Robux, it's the gamepass link
         const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : 'N/A';
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
+        const guildId = interaction.guildId;
 
-        const stock = await loadDataFromFirebase('stock');
-        const orders = await loadDataFromFirebase('orders');
+        const stock = await loadDataFromFirebase('stock', guildId);
+        const orders = await loadDataFromFirebase('orders', guildId);
 
         if (!stock[itemId]) {
             return await interaction.reply({ content: 'Item not found!', ephemeral: true });
@@ -1042,8 +1221,8 @@ async function handleModal(interaction) {
         orders[orderId] = order;
         stock[itemId].quantity -= quantity;
 
-        await saveDataToFirebase('orders', orders);
-        await saveDataToFirebase('stock', stock);
+        await saveDataToFirebase('orders', orders, guildId);
+        await saveDataToFirebase('stock', stock, guildId);
 
         const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
 
@@ -1064,7 +1243,7 @@ async function handleModal(interaction) {
         await interaction.reply({ embeds: [embed], ephemeral: true });
 
         // Send order notification to order channel
-        const settings = await loadDataFromFirebase('settings');
+        const settings = await loadDataFromFirebase('settings', guildId);
         if (settings.orderChannel) {
             try {
                 const orderChannel = await client.channels.fetch(settings.orderChannel);
