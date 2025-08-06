@@ -1,17 +1,18 @@
 {
-  "name": "discord-shop-bot",
+  "name": "nodejs",
   "version": "1.0.0",
-  "description": "A Discord bot for selling Robux and accounts using slash commands, embeds, buttons, and modals.",
+  "description": "",
   "main": "index.js",
-  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "register": "node deploy-commands.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "@discordjs/rest": "^1.7.1",
-    "fs": "^0.0.1-security",
-    "path": "^0.12.7"
+    "@discordjs/rest": "^2.5.1",
+    "@types/node": "^22.13.11",
+    "discord-api-types": "^0.38.18",
+    "discord.js": "^14.21.0"
   }
 }
