@@ -927,9 +927,11 @@ async function handleButton(interaction) {
 // Modal handling
 async function handleModal(interaction) {
     if (interaction.customId.startsWith('buy_modal_')) {
-        const parts = interaction.customId.split('_');
-        const itemId = parts[2];
-        let quantity = parseInt(parts[3]);
+        // Extract everything after "buy_modal_" up to the last underscore (which is the quantity)
+        const modalData = interaction.customId.replace('buy_modal_', '');
+        const lastUnderscoreIndex = modalData.lastIndexOf('_');
+        const itemId = modalData.substring(0, lastUnderscoreIndex);
+        let quantity = parseInt(modalData.substring(lastUnderscoreIndex + 1)) || 1;
 
         const isRobuxItem = itemId.startsWith('robux_');
 
