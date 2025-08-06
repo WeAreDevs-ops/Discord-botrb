@@ -519,7 +519,7 @@ async function handleBuyCommand(interaction) {
                 .setEmoji('🛒')
         );
 
-    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
 }
 
 async function handleCheckoutCommand(interaction) {
@@ -543,7 +543,7 @@ async function handleCheckoutCommand(interaction) {
                 .setEmoji('💳')
         );
 
-    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
 }
 
 
@@ -552,24 +552,26 @@ async function handleOrdersCommand(interaction) {
     const embed = new EmbedBuilder()
         .setTitle('📋 Order History Panel')
         .setColor(0x2f3136)
-        .setDescription('Click the button below to view order history for any user.')
-        .addFields({
-            name: 'How to use:',
-            value: '1. Click the "View Orders" button\n2. Input a User ID in the modal\n3. View the order history for that user',
-            inline: false
-        })
+        .setDescription('View your order history below.')
         .setTimestamp();
 
-    const actionRow = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('orders_modal')
-                .setLabel('View Orders')
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('📋')
-        );
+    const guildId = interaction.guildId;
+    const orders = await loadDataFromFirebase('orders', guildId);
+    const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
 
-    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
+    if (userOrders.length === 0) {
+        embed.addFields({ name: 'No Orders Found', value: 'You have not placed any orders yet.', inline: false });
+    } else {
+        userOrders.slice(0, 10).forEach(([orderId, order]) => {
+            embed.addFields({
+                name: `Order ${orderId}`,
+                value: `Item: ${order.itemName}\nQuantity: ${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
+                inline: false
+            });
+        });
+    }
+
+    await interaction.reply({ embeds: [embed], ephemeral: false });
 }
 
 async function handleStatusCommand(interaction) {
@@ -593,7 +595,7 @@ async function handleStatusCommand(interaction) {
                 .setEmoji('📊')
         );
 
-    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
 }
 
 async function handleHelpCommand(interaction) {
@@ -1078,7 +1080,7 @@ async function handleModal(interaction) {
 
         const order = orders[orderId];
 
-        
+
 
         const embed = new EmbedBuilder()
             .setTitle(`✅ Checkout - Order ${orderId}`)
@@ -1159,7 +1161,7 @@ async function handleModal(interaction) {
 
         const order = orders[orderId];
 
-        
+
 
         const embed = new EmbedBuilder()
             .setTitle(`📊 Order Status - ${orderId}`)
