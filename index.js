@@ -330,46 +330,29 @@ async function sendRobuxEmbed(channel) {
         return;
     }
 
-    const embed = new EmbedBuilder()
-        .setTitle('Available Items')
-        .setColor(0x2f3136)
-        .setDescription('Choose an item to purchase:')
-        .setTimestamp();
-
-    const actionRows = [];
-    let currentRow = new ActionRowBuilder();
-    let buttonCount = 0;
-
+    // Send each Robux item as a separate embed
     for (const [itemId, item] of robuxItems) {
-        const fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`;
+        const embed = new EmbedBuilder()
+            .setTitle('Available Items')
+            .setColor(0x2f3136)
+            .setDescription('Choose an item to purchase:')
+            .addFields({
+                name: item.name,
+                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
+                inline: false
+            })
+            .setTimestamp();
 
-        embed.addFields({
-            name: item.name,
-            value: fieldValue,
-            inline: false
-        });
-
-        if (buttonCount < 25) {
-            if (currentRow.components.length === 5) {
-                actionRows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-            }
-
-            currentRow.addComponents(
+        const actionRow = new ActionRowBuilder()
+            .addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
                     .setLabel(`Order ${item.name}`)
                     .setStyle(ButtonStyle.Primary)
             );
-            buttonCount++;
-        }
-    }
 
-    if (currentRow.components.length > 0) {
-        actionRows.push(currentRow);
+        await channel.send({ embeds: [embed], components: [actionRow] });
     }
-
-    await channel.send({ embeds: [embed], components: actionRows });
 }
 
 async function sendAccountsEmbed(channel) {
@@ -579,9 +562,6 @@ async function handleAddRobuxCommand(interaction) {
         content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each.`, 
         ephemeral: true 
     });
-
-    // Auto-send Robux embed
-    await sendRobuxEmbed(interaction.channel);
 }
 
 async function handleAddAccountCommand(interaction) {
@@ -614,9 +594,6 @@ async function handleAddAccountCommand(interaction) {
         content: `Successfully added ${premiumText} Account "${description}" at ₱${price.toFixed(2)}.`, 
         ephemeral: true 
     });
-
-    // Auto-send Accounts embed
-    await sendAccountsEmbed(interaction.channel);
 }
 
 async function handleOrderChannelCommand(interaction) {
