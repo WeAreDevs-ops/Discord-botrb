@@ -78,13 +78,8 @@ const commands = [
         .setDescription('Place an order for an item')
         .addStringOption(option =>
             option.setName('item')
-                .setDescription('Item to purchase')
-                .setRequired(true)
-                .addChoices(
-                    { name: '1000 Robux', value: 'robux_1000' },
-                    { name: '5000 Robux', value: 'robux_5000' },
-                    { name: 'Premium Account', value: 'account_premium' }
-                ))
+                .setDescription('Item ID to purchase')
+                .setRequired(true))
         .addIntegerOption(option =>
             option.setName('quantity')
                 .setDescription('Quantity to purchase')
@@ -110,6 +105,19 @@ const commands = [
             option.setName('order_id')
                 .setDescription('Order ID to check')
                 .setRequired(true)),
+
+    new SlashCommandBuilder()
+        .setName('list')
+        .setDescription('List available items')
+        .addStringOption(option =>
+            option.setName('type')
+                .setDescription('Type of items to list')
+                .setRequired(false)
+                .addChoices(
+                    { name: 'Robux', value: 'robux' },
+                    { name: 'Accounts', value: 'accounts' },
+                    { name: 'All', value: 'all' }
+                )),
 
     new SlashCommandBuilder()
         .setName('help')
@@ -283,6 +291,9 @@ async function handleSlashCommand(interaction) {
             case 'status':
                 await handleStatusCommand(interaction);
                 break;
+            case 'list':
+                await handleListCommand(interaction);
+                break;
             case 'help':
                 await handleHelpCommand(interaction);
                 break;
@@ -339,29 +350,66 @@ async function sendShopEmbed(channel) {
         return;
     }
 
-    // Send separate embed for each item
-    for (const [itemId, item] of availableItems) {
-        const embed = new EmbedBuilder()
-            .setTitle('Available Items')
-            .setColor(0x2f3136)
-            .setDescription('Choose an item to purchase:')
-            .addFields({
-                name: item.name,
-                value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
-                inline: false
-            })
-            .setTimestamp();
+    const embed = new EmbedBuilder()
+        .setTitle('Available Items')
+        .setColor(0x2f3136)
+        .setDescription('Choose an item to purchase:')
+        .setTimestamp();
 
-        const actionRow = new ActionRowBuilder()
-            .addComponents(
+    // Create action rows (each can hold up to 5 buttons, Discord allows up to 5 action rows)
+    const actionRows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonCount = 0;
+
+    for (const [itemId, item] of availableItems) {
+        // Format item display based on type
+        let fieldValue;
+        if (item.premium !== undefined) {
+            // Account item
+            fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.description}`;
+        } else {
+            // Robux item
+            fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`;
+        }
+
+        embed.addFields({
+            name: item.name,
+            value: fieldValue,
+            inline: false
+        });
+
+        // Add button if we haven't reached the maximum (25 buttons total: 5 rows × 5 buttons)
+        if (buttonCount < 25) {
+            // If current row is full (5 buttons), start a new row
+            if (currentRow.components.length === 5) {
+                actionRows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+            }
+
+            // Determine button label based on item type
+            let buttonLabel;
+            if (itemId.startsWith('account_')) {
+                buttonLabel = 'Order Account';
+            } else {
+                buttonLabel = `Order ${item.name}`;
+            }
+
+            currentRow.addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
-                    .setLabel(`Order ${item.name}`)
+                    .setLabel(buttonLabel)
                     .setStyle(ButtonStyle.Primary)
             );
-
-        await channel.send({ embeds: [embed], components: [actionRow] });
+            buttonCount++;
+        }
     }
+
+    // Add the last row if it has components
+    if (currentRow.components.length > 0) {
+        actionRows.push(currentRow);
+    }
+
+    await channel.send({ embeds: [embed], components: actionRows });
 }
 
 async function handleBuyCommand(interaction) {
@@ -496,13 +544,98 @@ async function handleStatusCommand(interaction) {
     await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
+async function handleListCommand(interaction) {
+    const type = interaction.options.getString('type') || 'all';
+    const stock = loadData('stock.json');
+    
+    let availableItems = Object.entries(stock).filter(([_, item]) => item.quantity > 0);
+    
+    // Filter items based on type
+    if (type === 'robux') {
+        availableItems = availableItems.filter(([itemId]) => itemId.startsWith('robux_'));
+    } else if (type === 'accounts') {
+        availableItems = availableItems.filter(([itemId]) => itemId.startsWith('account_'));
+    }
+
+    if (availableItems.length === 0) {
+        const embed = new EmbedBuilder()
+            .setTitle('Available Items')
+            .setColor(0x2f3136)
+            .setDescription(`No ${type === 'all' ? '' : type} items available at the moment. Please check back later!`)
+            .setTimestamp();
+        await interaction.reply({ embeds: [embed] });
+        return;
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle('Available Items')
+        .setColor(0x2f3136)
+        .setDescription('Choose an item to purchase:')
+        .setTimestamp();
+
+    // Create action rows (each can hold up to 5 buttons, Discord allows up to 5 action rows)
+    const actionRows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonCount = 0;
+
+    for (const [itemId, item] of availableItems) {
+        // Format item display based on type
+        let fieldValue;
+        if (item.premium !== undefined) {
+            // Account item
+            fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nPremium Status: ${item.premium}\n${item.description}`;
+        } else {
+            // Robux item
+            fieldValue = `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`;
+        }
+
+        embed.addFields({
+            name: item.name,
+            value: fieldValue,
+            inline: false
+        });
+
+        // Add button if we haven't reached the maximum (25 buttons total: 5 rows × 5 buttons)
+        if (buttonCount < 25) {
+            // If current row is full (5 buttons), start a new row
+            if (currentRow.components.length === 5) {
+                actionRows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+            }
+
+            // Determine button label based on item type
+            let buttonLabel;
+            if (itemId.startsWith('account_')) {
+                buttonLabel = 'Order Account';
+            } else {
+                buttonLabel = `Order ${item.name}`;
+            }
+
+            currentRow.addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`order_${itemId}`)
+                    .setLabel(buttonLabel)
+                    .setStyle(ButtonStyle.Primary)
+            );
+            buttonCount++;
+        }
+    }
+
+    // Add the last row if it has components
+    if (currentRow.components.length > 0) {
+        actionRows.push(currentRow);
+    }
+
+    await interaction.reply({ embeds: [embed], components: actionRows });
+}
+
 async function handleHelpCommand(interaction) {
     const embed = new EmbedBuilder()
         .setTitle('Shop Bot Help')
         .setColor(0x2f3136)
         .setDescription('Available commands:')
         .addFields(
-            { name: 'User Commands', value: '/buy - Purchase an item\n/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
+            { name: 'User Commands', value: '/list - View available items\n/buy - Purchase an item\n/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
             { name: 'Support', value: 'Contact an administrator for help with your orders.', inline: false }
         )
         .setTimestamp();
@@ -536,9 +669,6 @@ async function handleAddRobuxCommand(interaction) {
         content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each.`, 
         ephemeral: true 
     });
-
-    // Send updated shop embed to the channel
-    await sendShopEmbed(interaction.channel);
 }
 
 async function handleAddAccountCommand(interaction) {
@@ -571,9 +701,6 @@ async function handleAddAccountCommand(interaction) {
         content: `Successfully added ${premiumText} Account "${description}" at ₱${price.toFixed(2)}.`, 
         ephemeral: true 
     });
-
-    // Send updated shop embed to the channel
-    await sendShopEmbed(interaction.channel);
 }
 
 async function handleOrderChannelCommand(interaction) {
