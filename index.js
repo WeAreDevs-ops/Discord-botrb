@@ -118,7 +118,8 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('orders')
-        .setDescription('View your order history'),
+        .setDescription('View order history')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     new SlashCommandBuilder()
         .setName('status')
@@ -315,7 +316,7 @@ async function handleSlashCommand(interaction) {
             case 'checkout':
                 await handleCheckoutCommand(interaction);
                 break;
-            
+
             case 'orders':
                 await handleOrdersCommand(interaction);
                 break;
@@ -548,28 +549,27 @@ async function handleCheckoutCommand(interaction) {
 
 
 async function handleOrdersCommand(interaction) {
-    const guildId = interaction.guildId;
-    const orders = await loadDataFromFirebase('orders', guildId);
-    const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
-
-    if (userOrders.length === 0) {
-        return await interaction.reply({ content: 'You have no orders!', ephemeral: true });
-    }
-
     const embed = new EmbedBuilder()
-        .setTitle('Your Orders')
+        .setTitle('📋 Order History Panel')
         .setColor(0x2f3136)
+        .setDescription('Click the button below to view order history for any user.')
+        .addFields({
+            name: 'How to use:',
+            value: '1. Click the "View Orders" button\n2. Input a User ID in the modal\n3. View the order history for that user',
+            inline: false
+        })
         .setTimestamp();
 
-    userOrders.slice(0, 10).forEach(([orderId, order]) => {
-        embed.addFields({
-            name: `Order ${orderId}`,
-            value: `${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
-            inline: true
-        });
-    });
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('orders_modal')
+                .setLabel('View Orders')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('📋')
+        );
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
 }
 
 async function handleStatusCommand(interaction) {
@@ -976,7 +976,26 @@ async function handleButton(interaction) {
         await interaction.showModal(modal);
         return;
     }
-    
+
+    if (interaction.customId === 'orders_modal') {
+        const modal = new ModalBuilder()
+            .setCustomId('orders_input_modal')
+            .setTitle('Order History - Enter User ID');
+
+        const userIdInput = new TextInputBuilder()
+            .setCustomId('user_id_input')
+            .setLabel('User ID')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter User ID here...')
+            .setRequired(true);
+
+        const firstRow = new ActionRowBuilder().addComponents(userIdInput);
+        modal.addComponents(firstRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+
     if (interaction.customId.startsWith('order_')) {
         const itemId = interaction.customId.replace('order_', '');
         const guildId = interaction.guildId;
@@ -1059,9 +1078,7 @@ async function handleModal(interaction) {
 
         const order = orders[orderId];
 
-        if (order.userId !== interaction.user.id) {
-            return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
-        }
+        
 
         const embed = new EmbedBuilder()
             .setTitle(`✅ Checkout - Order ${orderId}`)
@@ -1142,9 +1159,7 @@ async function handleModal(interaction) {
 
         const order = orders[orderId];
 
-        if (order.userId !== interaction.user.id) {
-            return await interaction.reply({ content: 'You can only view your own orders!', ephemeral: true });
-        }
+        
 
         const embed = new EmbedBuilder()
             .setTitle(`📊 Order Status - ${orderId}`)
@@ -1162,7 +1177,34 @@ async function handleModal(interaction) {
         await interaction.reply({ embeds: [embed], ephemeral: true });
         return;
     }
-    
+
+    if (interaction.customId === 'orders_input_modal') {
+        const userId = interaction.fields.getTextInputValue('user_id_input');
+        const guildId = interaction.guildId;
+        const orders = await loadDataFromFirebase('orders', guildId);
+        const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === userId);
+
+        if (userOrders.length === 0) {
+            return await interaction.reply({ content: 'No orders found for this user!', ephemeral: true });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📋 Order History for User ${userId}`)
+            .setColor(0x2f3136)
+            .setTimestamp();
+
+        userOrders.slice(0, 10).forEach(([orderId, order]) => {
+            embed.addFields({
+                name: `Order ${orderId}`,
+                value: `${order.itemName} x${order.quantity}\nStatus: ${order.status}\nTotal: ₱${order.totalPrice.toFixed(2)}`,
+                inline: true
+            });
+        });
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+    }
+
     if (interaction.customId.startsWith('buy_modal_')) {
         // Extract everything after "buy_modal_" up to the last underscore (which is the quantity)
         const modalData = interaction.customId.replace('buy_modal_', '');
