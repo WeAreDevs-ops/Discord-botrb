@@ -635,6 +635,9 @@ async function handleAddRobuxCommand(interaction) {
     await saveDataToFirebase('stock', stock);
     saveData('stock.json', stock); // Backup to local file
 
+    console.log(`Created Robux item with ID: ${itemId}`);
+    console.log(`Item data:`, stock[itemId]);
+
     await interaction.reply({ 
         content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each. Tax Covered: ${taxCovered}.`, 
         ephemeral: true 
@@ -671,6 +674,9 @@ async function handleAddAccountCommand(interaction) {
 
     await saveDataToFirebase('stock', stock);
     saveData('stock.json', stock); // Backup to local file
+
+    console.log(`Created Account item with ID: ${itemId}`);
+    console.log(`Item data:`, stock[itemId]);
 
     await interaction.reply({ 
         content: `Successfully added Account "${username}" at ₱${price.toFixed(2)}.`, 
@@ -858,8 +864,14 @@ async function handleButton(interaction) {
         console.log(`Button clicked for item: ${itemId}`);
         console.log(`Available stock items:`, Object.keys(stock));
 
-        if (!stock[itemId] || stock[itemId].quantity === 0) {
-            return await interaction.reply({ content: 'This item is out of stock or not found!', ephemeral: true });
+        // Check if the exact itemId exists, if not, it might be a malformed button
+        if (!stock[itemId]) {
+            console.log(`Item ${itemId} not found in stock. Available items:`, Object.keys(stock));
+            return await interaction.reply({ content: 'This item is not found! Please contact an administrator.', ephemeral: true });
+        }
+
+        if (stock[itemId].quantity === 0) {
+            return await interaction.reply({ content: 'This item is out of stock!', ephemeral: true });
         }
 
         const modal = new ModalBuilder()
