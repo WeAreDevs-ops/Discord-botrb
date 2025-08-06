@@ -191,7 +191,7 @@ const commands = [
                 .addChoices(
                     { name: 'PayPal', value: 'paypal' },
                     { name: 'CashApp', value: 'cashapp' },
-                    { name: 'Crypto', value: 'crypto' }
+                    { name: 'Gcash', value: 'gcash' }
                 ))
         .addStringOption(option =>
             option.setName('details')
@@ -389,7 +389,7 @@ async function handleCheckoutCommand(interaction) {
         .addFields(
             { name: 'Item', value: order.itemName, inline: true },
             { name: 'Quantity', value: order.quantity.toString(), inline: true },
-            { name: 'Total Price', value: `$${order.totalPrice.toFixed(2)}`, inline: true },
+            { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
             { name: 'Status', value: order.status, inline: true },
             { name: 'Payment Method', value: order.paymentMethod, inline: true }
         )
