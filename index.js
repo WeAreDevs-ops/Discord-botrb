@@ -74,10 +74,6 @@ function initializeData() {
 const commands = [
     // User commands
     new SlashCommandBuilder()
-        .setName('shop')
-        .setDescription('View all available items in the shop'),
-    
-    new SlashCommandBuilder()
         .setName('buy')
         .setDescription('Place an order for an item')
         .addStringOption(option =>
@@ -121,11 +117,11 @@ const commands = [
 
     // Admin commands
     new SlashCommandBuilder()
-        .setName('addstock')
-        .setDescription('Add or update stock')
-        .addStringOption(option =>
-            option.setName('item')
-                .setDescription('Item ID')
+        .setName('addrobux')
+        .setDescription('Add Robux to stock')
+        .addIntegerOption(option =>
+            option.setName('amount')
+                .setDescription('Robux amount (e.g., 1000, 5000)')
                 .setRequired(true))
         .addIntegerOption(option =>
             option.setName('quantity')
@@ -134,6 +130,36 @@ const commands = [
         .addNumberOption(option =>
             option.setName('price')
                 .setDescription('Price per item')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('addaccount')
+        .setDescription('Add account to stock')
+        .addStringOption(option =>
+            option.setName('description')
+                .setDescription('Account description')
+                .setRequired(true))
+        .addBooleanOption(option =>
+            option.setName('premium')
+                .setDescription('Is this a premium account?')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('summary')
+                .setDescription('Account summary/details')
+                .setRequired(true))
+        .addNumberOption(option =>
+            option.setName('price')
+                .setDescription('Price for this account')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('orderchannel')
+        .setDescription('Set the order notification channel')
+        .addChannelOption(option =>
+            option.setName('channel')
+                .setDescription('Channel for order notifications')
                 .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -245,9 +271,6 @@ async function handleSlashCommand(interaction) {
 
     try {
         switch (commandName) {
-            case 'shop':
-                await handleShopCommand(interaction);
-                break;
             case 'buy':
                 await handleBuyCommand(interaction);
                 break;
@@ -263,8 +286,14 @@ async function handleSlashCommand(interaction) {
             case 'help':
                 await handleHelpCommand(interaction);
                 break;
-            case 'addstock':
-                await handleAddStockCommand(interaction);
+            case 'addrobux':
+                await handleAddRobuxCommand(interaction);
+                break;
+            case 'addaccount':
+                await handleAddAccountCommand(interaction);
+                break;
+            case 'orderchannel':
+                await handleOrderChannelCommand(interaction);
                 break;
             case 'removestock':
                 await handleRemoveStockCommand(interaction);
@@ -295,35 +324,60 @@ async function handleSlashCommand(interaction) {
     }
 }
 
-async function handleShopCommand(interaction) {
+async function sendShopEmbed(channel) {
     const stock = loadData('stock.json');
     
     const embed = new EmbedBuilder()
-        .setTitle('Shop - Available Items')
+        .setTitle('Available Items')
         .setColor(0x2f3136)
-        .setDescription('Choose an item to purchase:')
         .setTimestamp();
 
-    const buttons = new ActionRowBuilder();
+    const availableItems = Object.entries(stock).filter(([_, item]) => item.quantity > 0);
 
-    for (const [itemId, item] of Object.entries(stock)) {
+    if (availableItems.length === 0) {
+        embed.setDescription('No items available at the moment. Please check back later!');
+        await channel.send({ embeds: [embed] });
+        return;
+    }
+
+    embed.setDescription('Choose an item to purchase:');
+
+    // Create action rows (each can hold up to 5 buttons, Discord allows up to 5 action rows)
+    const actionRows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonCount = 0;
+
+    for (const [itemId, item] of availableItems) {
         embed.addFields({
             name: item.name,
             value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}`,
             inline: true
         });
 
-        if (buttons.components.length < 5) {
-            buttons.addComponents(
+        // Add button if we haven't reached the maximum (25 buttons total: 5 rows × 5 buttons)
+        if (buttonCount < 25) {
+            // If current row is full (5 buttons), start a new row
+            if (currentRow.components.length === 5) {
+                actionRows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+            }
+
+            currentRow.addComponents(
                 new ButtonBuilder()
                     .setCustomId(`order_${itemId}`)
                     .setLabel(`Order ${item.name}`)
                     .setStyle(ButtonStyle.Primary)
             );
+            buttonCount++;
         }
     }
 
-    await interaction.reply({ embeds: [embed], components: [buttons] });
+    // Add the last row if it has components
+    if (currentRow.components.length > 0) {
+        actionRows.push(currentRow);
+    }
+
+    await channel.send({ embeds: [embed], components: actionRows });
 }
 
 async function handleBuyCommand(interaction) {
@@ -460,7 +514,7 @@ async function handleHelpCommand(interaction) {
         .setColor(0x2f3136)
         .setDescription('Available commands:')
         .addFields(
-            { name: 'User Commands', value: '/shop - View available items\n/buy - Purchase an item\n/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
+            { name: 'User Commands', value: '/buy - Purchase an item\n/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
             { name: 'Support', value: 'Contact an administrator for help with your orders.', inline: false }
         )
         .setTimestamp();
@@ -469,19 +523,20 @@ async function handleHelpCommand(interaction) {
 }
 
 // Admin commands
-async function handleAddStockCommand(interaction) {
+async function handleAddRobuxCommand(interaction) {
     if (!interaction.memberPermissions.has('Administrator')) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
     }
 
-    const itemId = interaction.options.getString('item');
+    const amount = interaction.options.getInteger('amount');
     const quantity = interaction.options.getInteger('quantity');
     const price = interaction.options.getNumber('price');
     
     const stock = loadData('stock.json');
+    const itemId = `robux_${amount}`;
     
     if (!stock[itemId]) {
-        stock[itemId] = { name: itemId, quantity: 0, price: 0 };
+        stock[itemId] = { name: `${amount} Robux`, quantity: 0, price: 0 };
     }
     
     stock[itemId].quantity += quantity;
@@ -490,7 +545,62 @@ async function handleAddStockCommand(interaction) {
     saveData('stock.json', stock);
 
     await interaction.reply({ 
-        content: `Successfully added ${quantity} of ${itemId} at ₱${price.toFixed(2)} each.`, 
+        content: `Successfully added ${quantity} of ${amount} Robux at ₱${price.toFixed(2)} each.`, 
+        ephemeral: true 
+    });
+
+    // Send updated shop embed to the channel
+    await sendShopEmbed(interaction.channel);
+}
+
+async function handleAddAccountCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const description = interaction.options.getString('description');
+    const premium = interaction.options.getBoolean('premium');
+    const summary = interaction.options.getString('summary');
+    const price = interaction.options.getNumber('price');
+    
+    const stock = loadData('stock.json');
+    const timestamp = Date.now();
+    const itemId = `account_${timestamp}`;
+    const premiumText = premium ? 'Premium' : 'Regular';
+    
+    stock[itemId] = { 
+        name: `${premiumText} Account - ${description}`,
+        description: description,
+        premium: premium,
+        summary: summary,
+        quantity: 1,
+        price: price
+    };
+    
+    saveData('stock.json', stock);
+
+    await interaction.reply({ 
+        content: `Successfully added ${premiumText} Account "${description}" at ₱${price.toFixed(2)}.`, 
+        ephemeral: true 
+    });
+
+    // Send updated shop embed to the channel
+    await sendShopEmbed(interaction.channel);
+}
+
+async function handleOrderChannelCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const channel = interaction.options.getChannel('channel');
+    
+    const settings = loadData('settings.json');
+    settings.orderChannel = channel.id;
+    saveData('settings.json', settings);
+
+    await interaction.reply({ 
+        content: `Order notification channel set to ${channel}`, 
         ephemeral: true 
     });
 }
@@ -753,6 +863,27 @@ async function handleModal(interaction) {
             .setTimestamp();
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
+
+        // Send order notification to order channel
+        const settings = loadData('settings.json');
+        if (settings.orderChannel) {
+            try {
+                const orderChannel = await client.channels.fetch(settings.orderChannel);
+                const orderEmbed = new EmbedBuilder()
+                    .setTitle('Pending Orders')
+                    .setColor(0xffff00)
+                    .setAuthor({ 
+                        name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
+                        iconURL: interaction.user.displayAvatarURL()
+                    })
+                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**Roblox Username:** ${username}\n**Payment Method:** ${paymentMethod}`)
+                    .setTimestamp();
+
+                await orderChannel.send({ embeds: [orderEmbed] });
+            } catch (error) {
+                console.error('Could not send order notification:', error);
+            }
+        }
 
         // Try to send DM
         try {
