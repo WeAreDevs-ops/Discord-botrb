@@ -660,9 +660,8 @@ async function handleAddRobuxCommand(interaction) {
     const itemId = `robux_${amount}${taxSuffix}`;
 
     // Create new item or replace existing one with the exact quantity specified
-    const taxStatus = taxCovered ? 'Tax Covered' : 'Tax Not Covered';
     stock[itemId] = { 
-        name: `${amount} Robux (${taxStatus})`, 
+        name: `${amount} Robux`, 
         quantity: quantity, 
         price: price, 
         taxCovered: taxCovered 
