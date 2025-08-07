@@ -372,7 +372,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     if (item.quantity <= 0) return;
 
     const embed = new EmbedBuilder()
-        .setTitle('Available Items')
+        .setTitle('Available accounts')
         .setColor(0x2f3136)
         .setDescription('Please read carefully before making orders')
         .setTimestamp();
@@ -419,7 +419,7 @@ async function sendRobuxEmbed(channel, guildId) {
     for (const [itemId, item] of robuxItems) {
         const taxStatus = item.taxCovered ? 'Covered tax' : 'Not covered tax';
         const embed = new EmbedBuilder()
-            .setTitle('Available robux')
+            .setTitle('Available Robux')
             .setColor(0x2f3136)
             .setDescription('Choose an item to purchase:')
             .addFields({
