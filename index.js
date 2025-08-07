@@ -27,8 +27,8 @@ const app = express();
 app.use('/public', express.static('public'));
 
 // Add download route for QR codes
-app.get('/public/download/*', (req, res) => {
-    const fileName = req.params[0];
+app.get('/public/download/:filename', (req, res) => {
+    const fileName = req.params.filename;
     const filePath = `public/${fileName}`;
     res.download(filePath, fileName, (err) => {
         if (err) {
@@ -1170,7 +1170,9 @@ async function handleModal(interaction) {
                 if (urlMatch) {
                     // Remove the image URL from the text and create clickable link with download
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
-                    const downloadUrl = urlMatch[0].replace('/public/', '/public/download/');
+                    // Extract filename from the URL
+                    const filename = urlMatch[0].split('/').pop();
+                    const downloadUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/public/download/${filename}`;
                     const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[📱 Download QR Code](${downloadUrl})\n[🔍 View QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
                     embed.addFields({
                         name: 'Payment Instructions',
