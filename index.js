@@ -1113,6 +1113,11 @@ async function handleModal(interaction) {
 
         const order = orders[orderId];
 
+        // Verify that the user requesting checkout is the order owner
+        if (order.userId !== interaction.user.id) {
+            return await interaction.reply({ content: 'Access denied! You can only checkout your own orders.', ephemeral: true });
+        }
+
 
 
         const embed = new EmbedBuilder()
@@ -1215,6 +1220,11 @@ async function handleModal(interaction) {
         }
 
         const order = orders[orderId];
+
+        // Verify that the user requesting status is the order owner
+        if (order.userId !== interaction.user.id) {
+            return await interaction.reply({ content: 'Access denied! You can only check the status of your own orders.', ephemeral: true });
+        }
 
 
 
