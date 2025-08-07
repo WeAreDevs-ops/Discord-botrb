@@ -627,15 +627,19 @@ async function handleAddRobuxCommand(interaction) {
     const guildId = interaction.guildId;
 
     const stock = await loadDataFromFirebase('stock', guildId);
-    const itemId = `robux_${amount}`;
+    
+    // Include tax coverage in the item ID to differentiate between tax covered and not covered
+    const taxSuffix = taxCovered ? '_tax' : '_notax';
+    const itemId = `robux_${amount}${taxSuffix}`;
 
-    if (!stock[itemId]) {
-        stock[itemId] = { name: `${amount} Robux`, quantity: 0, price: 0, taxCovered: false };
-    }
-
-    stock[itemId].quantity += quantity;
-    stock[itemId].price = price;
-    stock[itemId].taxCovered = taxCovered;
+    // Create new item or replace existing one with the exact quantity specified
+    const taxStatus = taxCovered ? 'Tax Covered' : 'Tax Not Covered';
+    stock[itemId] = { 
+        name: `${amount} Robux (${taxStatus})`, 
+        quantity: quantity, 
+        price: price, 
+        taxCovered: taxCovered 
+    };
 
     await saveDataToFirebase('stock', stock, guildId);
 
