@@ -372,7 +372,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     if (item.quantity <= 0) return;
 
     const embed = new EmbedBuilder()
-        .setTitle('Available accounts')
+        .setTitle('Available Robux')
         .setColor(0x2f3136)
         .setDescription('Please read carefully before making orders')
         .setTimestamp();
