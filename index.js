@@ -29,12 +29,17 @@ app.use('/public', express.static('public'));
 // Add download route for QR codes
 app.get('/public/download/:filename', (req, res) => {
     const fileName = req.params.filename;
-    const filePath = `public/${fileName}`;
-    res.download(filePath, fileName, (err) => {
-        if (err) {
-            res.status(404).send('File not found');
-        }
-    });
+    const filePath = path.join(__dirname, 'public', fileName);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('File not found');
+    }
+    
+    // Force download with proper headers
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.download(filePath, fileName);
 });
 
 // Start express server for serving QR codes
