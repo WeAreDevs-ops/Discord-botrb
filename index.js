@@ -372,7 +372,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     if (item.quantity <= 0) return;
 
     const embed = new EmbedBuilder()
-        .setTitle('Available Robux')
+        .setTitle('Available')
         .setColor(0x2f3136)
         .setDescription('Please read carefully before making orders')
         .setTimestamp();
@@ -421,7 +421,7 @@ async function sendRobuxEmbed(channel, guildId) {
         const embed = new EmbedBuilder()
             .setTitle('Available Robux')
             .setColor(0x2f3136)
-            .setDescription('Choose an item to purchase:')
+            .setDescription('Please read carefully before making orders')
             .addFields({
                 name: item.name,
                 value: `Price: ₱${item.price.toFixed(2)}\nStock: ${item.quantity}\nProcess: ${taxStatus}`,
