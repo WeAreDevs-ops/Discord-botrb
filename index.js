@@ -374,7 +374,7 @@ async function sendSingleItemEmbed(channel, itemId, item) {
     const embed = new EmbedBuilder()
         .setTitle('Available Items')
         .setColor(0x2f3136)
-        .setDescription('Choose an item to purchase:')
+        .setDescription('Please read carefully before making orders')
         .setTimestamp();
 
     // Different field format for accounts vs robux
@@ -419,7 +419,7 @@ async function sendRobuxEmbed(channel, guildId) {
     for (const [itemId, item] of robuxItems) {
         const taxStatus = item.taxCovered ? 'Covered tax' : 'Not covered tax';
         const embed = new EmbedBuilder()
-            .setTitle('Available Items')
+            .setTitle('Available robux')
             .setColor(0x2f3136)
             .setDescription('Choose an item to purchase:')
             .addFields({
@@ -455,9 +455,9 @@ async function sendAccountsEmbed(channel, guildId) {
     // Send each account as a separate embed
     for (const [itemId, item] of accountItems) {
         const embed = new EmbedBuilder()
-            .setTitle('Available Items')
+            .setTitle('Available accounts')
             .setColor(0x2f3136)
-            .setDescription('Choose an item to purchase:')
+            .setDescription('Please read carefully before making orders')
             .addFields({
                 name: `Username: ${item.username}`,
                 value: `Price: ₱${item.price.toFixed(2)}\nSummary: ${item.summary}\nPremium: ${item.premium}\n${item.description}`,
@@ -489,7 +489,7 @@ async function handleBuyCommand(interaction) {
     }
 
     const embed = new EmbedBuilder()
-        .setTitle('🛒 Purchase Panel')
+        .setTitle('Purchase Panel')
         .setColor(0x2f3136)
         .setDescription('Click the button below to select an item and place your order.')
         .addFields({
@@ -516,7 +516,7 @@ async function handleBuyCommand(interaction) {
                 .setCustomId('buy_modal')
                 .setLabel('Select Item')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('🛒')
+                
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -524,7 +524,7 @@ async function handleBuyCommand(interaction) {
 
 async function handleCheckoutCommand(interaction) {
     const embed = new EmbedBuilder()
-        .setTitle('💳 Checkout Panel')
+        .setTitle('Checkout Panel')
         .setColor(0x2f3136)
         .setDescription('Click the button below to enter your Order ID and view payment instructions.')
         .addFields({
@@ -540,7 +540,7 @@ async function handleCheckoutCommand(interaction) {
                 .setCustomId('checkout_modal')
                 .setLabel('Enter Order ID')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('💳')
+            
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -554,7 +554,7 @@ async function handleOrdersCommand(interaction) {
     }
 
     const embed = new EmbedBuilder()
-        .setTitle('📋 Order History Panel')
+        .setTitle('Order History Panel')
         .setColor(0x2f3136)
         .setDescription('Click the button below to view your order history.')
         .addFields({
@@ -570,7 +570,7 @@ async function handleOrdersCommand(interaction) {
                 .setCustomId('view_my_orders')
                 .setLabel('View My Orders')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('📋')
+                
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -578,7 +578,7 @@ async function handleOrdersCommand(interaction) {
 
 async function handleStatusCommand(interaction) {
     const embed = new EmbedBuilder()
-        .setTitle('📊 Order Status Panel')
+        .setTitle('Order Status Panel')
         .setColor(0x2f3136)
         .setDescription('Click the button below to enter your Order ID and check the status.')
         .addFields({
@@ -594,7 +594,7 @@ async function handleStatusCommand(interaction) {
                 .setCustomId('status_modal')
                 .setLabel('Check Status')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('📊')
+                
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -831,7 +831,7 @@ async function handleDeliverCommand(interaction) {
             const deliveryChannel = await client.channels.fetch(settings.deliveryChannel);
 
             const deliveredEmbed = new EmbedBuilder()
-                .setTitle('✅ Order Delivered Successfully!')
+                .setTitle('Order Delivered Successfully!')
                 .setColor(0x00ff00)
                 .setDescription(`**Order ID:** ${orderId}`)
                 .addFields(
@@ -840,7 +840,7 @@ async function handleDeliverCommand(interaction) {
                     { name: 'Quantity', value: order.quantity.toString(), inline: true },
                     { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
                     { name: 'Payment Method', value: order.paymentMethod, inline: true },
-                    { name: 'Status', value: '✅ Delivered', inline: true }
+                    { name: 'Status', value: 'Delivered', inline: true }
                 )
                 .setTimestamp();
 
@@ -854,7 +854,7 @@ async function handleDeliverCommand(interaction) {
     try {
         const user = await client.users.fetch(order.userId);
         const userEmbed = new EmbedBuilder()
-            .setTitle('✅ Your Order Has Been Delivered!')
+            .setTitle('Your Order Has Been Delivered!')
             .setColor(0x00ff00)
             .setDescription(`Thank you for your purchase! Your order ${orderId} has been successfully delivered.`)
             .addFields(
@@ -871,7 +871,7 @@ async function handleDeliverCommand(interaction) {
     }
 
     await interaction.reply({ 
-        content: `✅ Order ${orderId} marked as delivered! Notification sent to delivery channel and customer has been DMed.`, 
+        content: `Order ${orderId} marked as delivered! Notification sent to delivery channel and customer has been DMed.`, 
         ephemeral: true 
     });
 }
@@ -1006,7 +1006,7 @@ async function handleButton(interaction) {
         const userOrders = Object.entries(orders).filter(([_, order]) => order.userId === interaction.user.id);
 
         const embed = new EmbedBuilder()
-            .setTitle('📋 Your Order History')
+            .setTitle('Your Order History')
             .setColor(0x2f3136)
             .setDescription(`Order history for ${interaction.user.username}`)
             .setTimestamp();
@@ -1116,7 +1116,7 @@ async function handleModal(interaction) {
 
 
         const embed = new EmbedBuilder()
-            .setTitle(`✅ Checkout - Order ${orderId}`)
+            .setTitle(`Checkout - Order ${orderId}`)
             .setColor(0x00ff00)
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
@@ -1141,18 +1141,18 @@ async function handleModal(interaction) {
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
                     const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[Click here for QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
                     embed.addFields({
-                        name: '💰 Payment Instructions',
+                        name: 'Payment Instructions',
                         value: paymentInstructions
                     });
                 } else {
                     embed.addFields({
-                        name: '💰 Payment Instructions',
+                        name: 'Payment Instructions',
                         value: paymentDetails
                     });
                 }
             } else {
                 embed.addFields({
-                    name: '💰 Payment Instructions',
+                    name: 'Payment Instructions',
                     value: paymentDetails
                 });
             }
@@ -1219,7 +1219,7 @@ async function handleModal(interaction) {
 
 
         const embed = new EmbedBuilder()
-            .setTitle(`📊 Order Status - ${orderId}`)
+            .setTitle(`Order Status - ${orderId}`)
             .setColor(0x2f3136)
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
@@ -1246,7 +1246,7 @@ async function handleModal(interaction) {
         }
 
         const embed = new EmbedBuilder()
-            .setTitle(`📋 Order History for User ${userId}`)
+            .setTitle(`Order History for User ${userId}`)
             .setColor(0x2f3136)
             .setTimestamp();
 
@@ -1335,7 +1335,7 @@ async function handleModal(interaction) {
                 { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
                 { name: usernameFieldName, value: username, inline: true },
                 { name: 'Payment Method', value: paymentMethod, inline: true },
-                { name: 'Next Steps', value: `Use /checkout ${orderId} to view payment instructions.`, inline: false }
+                { name: 'Next Steps', value: `Go to <#1402669563849609256> to checkout your order`, inline: false }
             )
             .setTimestamp();
 
