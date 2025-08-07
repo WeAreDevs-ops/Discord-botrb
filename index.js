@@ -20,6 +20,28 @@ admin.initializeApp({
 
 const db = admin.database();
 
+const express = require('express');
+const app = express();
+
+// Serve static files from public directory
+app.use('/public', express.static('public'));
+
+// Add download route for QR codes
+app.get('/public/download/*', (req, res) => {
+    const fileName = req.params[0];
+    const filePath = `public/${fileName}`;
+    res.download(filePath, fileName, (err) => {
+        if (err) {
+            res.status(404).send('File not found');
+        }
+    });
+});
+
+// Start express server for serving QR codes
+app.listen(5000, '0.0.0.0', () => {
+    console.log('Static file server running on port 5000');
+});
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -1146,9 +1168,10 @@ async function handleModal(interaction) {
                 // Extract the image URL from the payment details
                 const urlMatch = paymentDetails.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif))/i);
                 if (urlMatch) {
-                    // Remove the image URL from the text and create clickable link
+                    // Remove the image URL from the text and create clickable link with download
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
-                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[Click here for QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
+                    const downloadUrl = urlMatch[0].replace('/public/', '/public/download/');
+                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[📱 Download QR Code](${downloadUrl})\n[🔍 View QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
                     embed.addFields({
                         name: 'Payment Instructions',
                         value: paymentInstructions
