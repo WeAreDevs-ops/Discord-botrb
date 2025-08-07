@@ -1173,12 +1173,9 @@ async function handleModal(interaction) {
                 // Extract the image URL from the payment details
                 const urlMatch = paymentDetails.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif))/i);
                 if (urlMatch) {
-                    // Remove the image URL from the text and create clickable link with download
+                    // Remove the image URL from the text and create only view QR code link
                     const textOnly = paymentDetails.replace(urlMatch[0], '').trim();
-                    // Extract filename from the URL
-                    const filename = urlMatch[0].split('/').pop();
-                    const downloadUrl = `https://myqrcode.up.railway.app/public/qr-gcash.png`;
-                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[📱 Download QR Code](${downloadUrl})\n[🔍 View QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
+                    const paymentInstructions = textOnly + (textOnly ? '\n' : '') + `[🔍 View QR Code](${urlMatch[0]})\n\n⚠️ **Note:** If the QR code link doesn't work, please contact an admin for updated payment details.`;
                     embed.addFields({
                         name: 'Payment Instructions',
                         value: paymentInstructions
