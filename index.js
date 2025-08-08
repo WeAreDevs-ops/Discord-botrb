@@ -30,12 +30,12 @@ app.use('/public', express.static('public'));
 app.get('/public/download/:filename', (req, res) => {
     const fileName = req.params.filename;
     const filePath = path.join(__dirname, 'public', fileName);
-    
+
     // Check if file exists
     if (!fs.existsSync(filePath)) {
         return res.status(404).send('File not found');
     }
-    
+
     // Force download with proper headers
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -47,6 +47,7 @@ app.listen(5000, '0.0.0.0', () => {
     console.log('Static file server running on port 5000');
 });
 
+// Global variables for tracking
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -54,6 +55,9 @@ const client = new Client({
         GatewayIntentBits.DirectMessages
     ]
 });
+
+// Store message IDs for embeds to allow deletion later
+const embedMessageIds = new Map(); // itemId -> array of message IDs
 
 // Firebase data management functions
 async function loadDataFromFirebase(collection, guildId = 'global') {
@@ -135,10 +139,6 @@ async function initializeData() {
 // Slash commands definition
 const commands = [
     // User commands
-    new SlashCommandBuilder()
-        .setName('buy')
-        .setDescription('Open interactive purchase panel'),
-
     new SlashCommandBuilder()
         .setName('checkout')
         .setDescription('View payment instructions for an order'),
@@ -337,9 +337,6 @@ async function handleSlashCommand(interaction) {
 
     try {
         switch (commandName) {
-            case 'buy':
-                await handleBuyCommand(interaction);
-                break;
             case 'checkout':
                 await handleCheckoutCommand(interaction);
                 break;
@@ -428,14 +425,20 @@ async function sendSingleItemEmbed(channel, itemId, item) {
                 .setStyle(ButtonStyle.Primary)
         );
 
-    await channel.send({ embeds: [embed], components: [actionRow] });
+    const sentMessage = await channel.send({ embeds: [embed], components: [actionRow] });
+
+    // Track the message ID for this item
+    if (!embedMessageIds.has(itemId)) {
+        embedMessageIds.set(itemId, []);
+    }
+    embedMessageIds.get(itemId).push(sentMessage.id);
 }
 
 async function sendRobuxEmbed(channel, guildId) {
     const stock = await loadDataFromFirebase('stock', guildId);
 
     const robuxItems = Object.entries(stock).filter(([itemId, item]) => 
-        itemId.startsWith('robux_') && item.quantity > 0
+        itemId.startsWith('robux_') && getAvailableQuantity(item) > 0
     );
 
     if (robuxItems.length === 0) {
@@ -464,7 +467,13 @@ async function sendRobuxEmbed(channel, guildId) {
                     .setStyle(ButtonStyle.Primary)
             );
 
-        await channel.send({ embeds: [embed], components: [actionRow] });
+        const sentMessage = await channel.send({ embeds: [embed], components: [actionRow] });
+
+        // Track the message ID for this item
+        if (!embedMessageIds.has(itemId)) {
+            embedMessageIds.set(itemId, []);
+        }
+        embedMessageIds.get(itemId).push(sentMessage.id);
     }
 }
 
@@ -472,7 +481,7 @@ async function sendAccountsEmbed(channel, guildId) {
     const stock = await loadDataFromFirebase('stock', guildId);
 
     const accountItems = Object.entries(stock).filter(([itemId, item]) => 
-        itemId.startsWith('account_') && item.quantity > 0
+        itemId.startsWith('account_') && getAvailableQuantity(item) > 0
     );
 
     if (accountItems.length === 0) {
@@ -500,54 +509,17 @@ async function sendAccountsEmbed(channel, guildId) {
                     .setStyle(ButtonStyle.Primary)
             );
 
-        await channel.send({ embeds: [embed], components: [actionRow] });
+        const sentMessage = await channel.send({ embeds: [embed], components: [actionRow] });
+
+        // Track the message ID for this item
+        if (!embedMessageIds.has(itemId)) {
+            embedMessageIds.set(itemId, []);
+        }
+        embedMessageIds.get(itemId).push(sentMessage.id);
     }
 }
 
-async function handleBuyCommand(interaction) {
-    const guildId = interaction.guildId;
-    const stock = await loadDataFromFirebase('stock', guildId);
 
-    // Filter available items (quantity > 0)
-    const availableItems = Object.entries(stock).filter(([_, item]) => item.quantity > 0);
-
-    if (availableItems.length === 0) {
-        return await interaction.reply({ content: 'No items are currently available for purchase!', ephemeral: true });
-    }
-
-    const embed = new EmbedBuilder()
-        .setTitle('Purchase Panel')
-        .setColor(0x2f3136)
-        .setDescription('Click the button below to select an item and place your order.')
-        .addFields({
-            name: 'Available Items:',
-            value: availableItems.map(([itemId, item]) => {
-                if (itemId.startsWith('account_')) {
-                    return `**${item.username}** - ₱${item.price.toFixed(2)} (${item.summary})`;
-                } else {
-                    return `**${item.name}** - ₱${item.price.toFixed(2)} (Stock: ${item.quantity})`;
-                }
-            }).join('\n'),
-            inline: false
-        })
-        .addFields({
-            name: 'How to use:',
-            value: '1. Click the "Select Item" button\n2. Enter the Item ID in the modal\n3. Complete your purchase details',
-            inline: false
-        })
-        .setTimestamp();
-
-    const actionRow = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('buy_modal')
-                .setLabel('Select Item')
-                .setStyle(ButtonStyle.Primary)
-                
-        );
-
-    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
-}
 
 async function handleCheckoutCommand(interaction) {
     const embed = new EmbedBuilder()
@@ -567,7 +539,7 @@ async function handleCheckoutCommand(interaction) {
                 .setCustomId('checkout_modal')
                 .setLabel('Enter Order ID')
                 .setStyle(ButtonStyle.Primary)
-            
+
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -597,7 +569,7 @@ async function handleOrdersCommand(interaction) {
                 .setCustomId('view_my_orders')
                 .setLabel('View My Orders')
                 .setStyle(ButtonStyle.Primary)
-                
+
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -621,7 +593,7 @@ async function handleStatusCommand(interaction) {
                 .setCustomId('status_modal')
                 .setLabel('Check Status')
                 .setStyle(ButtonStyle.Primary)
-                
+
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -633,7 +605,7 @@ async function handleHelpCommand(interaction) {
         .setColor(0x2f3136)
         .setDescription('Available commands:')
         .addFields(
-            { name: 'User Commands', value: '/buy - Purchase an item\n/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
+            { name: 'User Commands', value: '/checkout - View payment info\n/orders - View your orders\n/status - Check order status', inline: false },
             { name: 'Support', value: 'Contact an administrator for help with your orders.', inline: false }
         )
         .setTimestamp();
@@ -654,7 +626,7 @@ async function handleAddRobuxCommand(interaction) {
     const guildId = interaction.guildId;
 
     const stock = await loadDataFromFirebase('stock', guildId);
-    
+
     // Include tax coverage in the item ID to differentiate between tax covered and not covered
     const taxSuffix = taxCovered ? '_tax' : '_notax';
     const itemId = `robux_${amount}${taxSuffix}`;
@@ -664,7 +636,8 @@ async function handleAddRobuxCommand(interaction) {
         name: `${amount} Robux`, 
         quantity: quantity, 
         price: price, 
-        taxCovered: taxCovered 
+        taxCovered: taxCovered,
+        reserved: 0 // Initialize reserved quantity to 0
     };
 
     await saveDataToFirebase('stock', stock, guildId);
@@ -704,7 +677,7 @@ async function handleAddAccountCommand(interaction) {
         premium: premium ? 'True' : 'False',
         summary: summary,
         quantity: 1,
-        price: price
+        reserved: 0 // Initialize reserved quantity to 0
     };
 
     await saveDataToFirebase('stock', stock, guildId);
@@ -773,8 +746,15 @@ async function handleRemoveStockCommand(interaction) {
         return await interaction.reply({ content: 'Item not found!', ephemeral: true });
     }
 
+    const oldQuantity = stock[itemId].quantity;
     stock[itemId].quantity = Math.max(0, stock[itemId].quantity - quantity);
+    const newQuantity = stock[itemId].quantity;
     await saveDataToFirebase('stock', stock, guildId);
+
+    // If the quantity dropped to 0, delete associated embeds
+    if (oldQuantity > 0 && newQuantity === 0) {
+        await deleteItemEmbeds(itemId, guildId);
+    }
 
     await interaction.reply({ 
         content: `Successfully removed ${quantity} from ${itemId}. New quantity: ${stock[itemId].quantity}`, 
@@ -844,6 +824,7 @@ async function handleDeliverCommand(interaction) {
     const guildId = interaction.guildId;
     const orders = await loadDataFromFirebase('orders', guildId);
     const settings = await loadDataFromFirebase('settings', guildId);
+    const stock = await loadDataFromFirebase('stock', guildId);
 
     if (!orders[orderId]) {
         return await interaction.reply({ content: 'Order not found!', ephemeral: true });
@@ -853,7 +834,26 @@ async function handleDeliverCommand(interaction) {
 
     // Update order status to delivered
     orders[orderId].status = 'Delivered';
+
+    // Handle stock updates when order is delivered
+    const item = stock[order.itemId];
+    if (item) {
+        // Release any reserved quantity and reduce actual stock
+        if (item.reserved && item.reserved >= order.quantity) {
+            item.reserved -= order.quantity;
+        }
+
+        // Reduce actual stock quantity
+        item.quantity = Math.max(0, item.quantity - order.quantity);
+
+        // If quantity reaches 0, delete associated embeds
+        if (item.quantity === 0) {
+            await deleteItemEmbeds(order.itemId, guildId);
+        }
+    }
+
     await saveDataToFirebase('orders', orders, guildId);
+    await saveDataToFirebase('stock', stock, guildId);
 
     // Send delivery notification to the delivery channel
     if (settings.deliveryChannel) {
@@ -941,6 +941,137 @@ async function handleAnnounceCommand(interaction) {
     await interaction.reply({ embeds: [embed] });
 }
 
+// Reservation system functions
+
+const RESERVATION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
+// Function to get the current available quantity (total - reserved)
+function getAvailableQuantity(item) {
+    return item.quantity - (item.reserved || 0);
+}
+
+// Function to delete associated embeds for an item
+async function deleteItemEmbeds(itemId, guildId) {
+    if (!embedMessageIds.has(itemId) || embedMessageIds.get(itemId).length === 0) {
+        console.log(`No embeds to delete for item ${itemId}`);
+        return;
+    }
+
+    const messageIdsToDelete = embedMessageIds.get(itemId);
+    const stock = await loadDataFromFirebase('stock', guildId);
+    const item = stock[itemId];
+
+    // Determine which channel to fetch the message from. Ideally, this should be stored with the message ID.
+    // For simplicity, we'll assume a main "shop" channel or the channel where it was last sent.
+    // A more robust solution would store the channel ID along with the message ID.
+    // For now, we'll try to iterate through guilds the bot is in.
+    
+    for (const guild of client.guilds.cache.values()) {
+        const messagesToDeleteInGuild = [];
+        for (const messageId of messageIdsToDelete) {
+            try {
+                // Attempt to fetch the message in the current guild
+                const channel = await guild.channels.cache.find(ch => ch.type === 0); // Find any text channel
+                if (channel) {
+                    const message = await channel.messages.fetch(messageId);
+                    if (message) {
+                        messagesToDeleteInGuild.push(message.delete());
+                    }
+                }
+            } catch (error) {
+                // Message might have been deleted already or bot doesn't have permissions
+                if (error.code !== 10008) { // 10008: Unknown message, likely already deleted
+                    console.error(`Error deleting message ${messageId} for item ${itemId}:`, error);
+                }
+            }
+        }
+        // Wait for all deletions in this guild to attempt
+        if (messagesToDeleteInGuild.length > 0) {
+            await Promise.allSettled(messagesToDeleteInGuild);
+        }
+    }
+
+    // Clear the tracked message IDs for this item
+    embedMessageIds.delete(itemId);
+    console.log(`Deleted embeds for item ${itemId}`);
+}
+
+
+// Function to clean expired reservations
+async function cleanExpiredReservations(guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
+    const now = Date.now();
+    let changesMade = false;
+
+    for (const itemId in stock) {
+        const item = stock[itemId];
+        if (item.reserved && item.reserved > 0) {
+            // Check if reservation has expired
+            if (item.reservationTimestamp && item.reservationTimestamp + RESERVATION_EXPIRY_MS < now) {
+                // Release the reserved quantity back to stock
+                item.quantity += item.reserved;
+                item.reserved = 0;
+                delete item.reservationTimestamp; // Clean up timestamp
+                changesMade = true;
+                console.log(`Released ${item.reserved} of ${itemId} due to expired reservation.`);
+                // If the item's quantity is now 0, delete its embeds
+                if (item.quantity === 0) {
+                    await deleteItemEmbeds(itemId, guildId);
+                }
+            }
+        }
+    }
+
+    if (changesMade) {
+        await saveDataToFirebase('stock', stock, guildId);
+    }
+}
+
+// Function to reserve an item
+async function reserveItem(itemId, quantity, guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
+    const item = stock[itemId];
+
+    if (!item) {
+        throw new Error('Item not found.');
+    }
+
+    const availableQuantity = getAvailableQuantity(item);
+
+    if (availableQuantity < quantity) {
+        throw new Error('Not enough stock available.');
+    }
+
+    // Update item quantities
+    item.reserved = (item.reserved || 0) + quantity;
+    item.reservationTimestamp = Date.now(); // Set reservation timestamp
+    stock[itemId] = item;
+
+    await saveDataToFirebase('stock', stock, guildId);
+    return true;
+}
+
+// Function to release reservation (e.g., if order is cancelled)
+async function releaseReservation(itemId, quantity, guildId) {
+    const stock = await loadDataFromFirebase('stock', guildId);
+    const item = stock[itemId];
+
+    if (!item) {
+        throw new Error('Item not found.');
+    }
+
+    if (item.reserved && item.reserved >= quantity) {
+        item.reserved -= quantity;
+        if (item.reserved === 0) {
+            delete item.reservationTimestamp; // Remove timestamp if no more reserved
+        }
+        stock[itemId] = item;
+        await saveDataToFirebase('stock', stock, guildId);
+        return true;
+    } else {
+        throw new Error('Invalid reservation release quantity.');
+    }
+}
 
 
 // Button handling
@@ -1075,7 +1206,11 @@ async function handleButton(interaction) {
             return await interaction.reply({ content: 'This item is not found! Please contact an administrator.', ephemeral: true });
         }
 
-        if (stock[itemId].quantity === 0) {
+        // Clean expired reservations before checking quantity
+        await cleanExpiredReservations(guildId);
+
+        const availableQuantity = getAvailableQuantity(stock[itemId]);
+        if (availableQuantity <= 0) {
             return await interaction.reply({ content: 'This item is out of stock!', ephemeral: true });
         }
 
@@ -1166,7 +1301,7 @@ async function handleModal(interaction) {
         const paymentMethod = order.paymentMethod.toLowerCase();
         if (settings.paymentMethods[paymentMethod]) {
             const paymentDetails = settings.paymentMethods[paymentMethod];
-            
+
             // Check if payment details contain an image URL
             if (paymentDetails.includes('http') && (paymentDetails.includes('.png') || paymentDetails.includes('.jpg') || paymentDetails.includes('.jpeg') || paymentDetails.includes('.gif'))) {
                 // Extract the image URL from the payment details
@@ -1199,7 +1334,7 @@ async function handleModal(interaction) {
 
     if (interaction.customId === 'buy_input_modal') {
         const itemId = interaction.fields.getTextInputValue('item_id_input');
-        const quantity = parseInt(interaction.fields.getTextInputValue('quantity_input')) || 1;
+        let quantity = parseInt(interaction.fields.getTextInputValue('quantity_input')) || 1;
         const guildId = interaction.guildId;
         const stock = await loadDataFromFirebase('stock', guildId);
 
@@ -1207,7 +1342,11 @@ async function handleModal(interaction) {
             return await interaction.reply({ content: 'Item not found! Please check the Item ID and try again.', ephemeral: true });
         }
 
-        if (stock[itemId].quantity < quantity) {
+        // Clean expired reservations first
+        await cleanExpiredReservations(guildId);
+
+        const availableQuantity = getAvailableQuantity(stock[itemId]);
+        if (availableQuantity < quantity) {
             return await interaction.reply({ content: 'Not enough stock available!', ephemeral: true });
         }
 
@@ -1322,7 +1461,7 @@ async function handleModal(interaction) {
 
         const guildId = interaction.guildId;
         const stock = await loadDataFromFirebase('stock', guildId);
-        
+
         // For accounts, use the account username. For Robux, it's the gamepass link
         const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : stock[itemId].username;
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
@@ -1332,7 +1471,11 @@ async function handleModal(interaction) {
             return await interaction.reply({ content: 'Item not found!', ephemeral: true });
         }
 
-        if (stock[itemId].quantity < quantity) {
+        // Clean expired reservations first
+        await cleanExpiredReservations(guildId);
+
+        const availableQuantity = getAvailableQuantity(stock[itemId]);
+        if (availableQuantity < quantity) {
             return await interaction.reply({ content: 'Not enough stock available!', ephemeral: true });
         }
 
@@ -1340,113 +1483,125 @@ async function handleModal(interaction) {
             return await interaction.reply({ content: 'Invalid quantity!', ephemeral: true });
         }
 
-        const orderId = generateOrderId();
-        const totalPrice = stock[itemId].price * quantity;
-
-        const order = {
-            orderId,
-            userId: interaction.user.id,
-            username: interaction.user.username,
-            robloxUsername: username,
-            itemId,
-            itemName: stock[itemId].name,
-            quantity,
-            totalPrice,
-            paymentMethod,
-            status: 'Pending Payment',
-            timestamp: Date.now()
-        };
-
-        orders[orderId] = order;
-        stock[itemId].quantity -= quantity;
-
-        await saveDataToFirebase('orders', orders, guildId);
-        await saveDataToFirebase('stock', stock, guildId);
-
-        const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
-
-        const embed = new EmbedBuilder()
-            .setTitle('Order Placed Successfully!')
-            .setColor(0x2f3136)
-            .setDescription(`Order ID: ${orderId}`)
-            .addFields(
-                { name: 'Item', value: order.itemName, inline: true },
-                { name: 'Quantity', value: quantity.toString(), inline: true },
-                { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
-                { name: usernameFieldName, value: username, inline: true },
-                { name: 'Payment Method', value: paymentMethod, inline: true },
-                { name: 'Next Steps', value: `Go to <#1402669563849609256> to checkout your order`, inline: false }
-            )
-            .setTimestamp();
-
-        await interaction.reply({ embeds: [embed], ephemeral: true });
-
-        // Send order notification to order channel
-        const settings = await loadDataFromFirebase('settings', guildId);
-        if (settings.orderChannel) {
-            try {
-                const orderChannel = await client.channels.fetch(settings.orderChannel);
-                const usernameFieldName2 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
-
-                const orderEmbed = new EmbedBuilder()
-                    .setTitle('Pending Orders')
-                    .setColor(0xffff00)
-                    .setAuthor({ 
-                        name: `${interaction.user.username} (${interaction.user.displayname || interaction.user.username})`,
-                        iconURL: interaction.user.displayAvatarURL()
-                    })
-                    .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${username}\n**Payment Method:** ${paymentMethod}`)
-                    .setTimestamp();
-
-                await orderChannel.send({ embeds: [orderEmbed] });
-            } catch (error) {
-                console.error('Could not send order notification:', error);
-            }
-        }
-
-        // Send automatic DM notification to admin for new pending orders
         try {
-            const guild = await client.guilds.fetch(guildId);
-            const adminId = guild.ownerId; // Gets the server owner ID
-            const admin = await client.users.fetch(adminId);
-            
-            const usernameFieldName3 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
-            
-            const adminDmEmbed = new EmbedBuilder()
-                .setTitle('New Pending Order Alert')
-                .setColor(0xff9900)
-                .setDescription(`A new order has been placed and requires your attention!`)
+            // Attempt to reserve the item
+            await reserveItem(itemId, quantity, guildId);
+
+            const orderId = generateOrderId();
+            const totalPrice = stock[itemId].price * quantity;
+
+            const order = {
+                orderId,
+                userId: interaction.user.id,
+                username: interaction.user.username,
+                robloxUsername: username,
+                itemId,
+                itemName: stock[itemId].name,
+                quantity,
+                totalPrice,
+                paymentMethod,
+                status: 'Pending Payment',
+                timestamp: Date.now()
+            };
+
+            orders[orderId] = order;
+            // The actual stock quantity reduction will happen upon payment confirmation or after reservation expiry if not paid.
+            // For now, we only reduce the 'reserved' count.
+
+            await saveDataToFirebase('orders', orders, guildId);
+            // Save stock update (reserved quantity)
+            await saveDataToFirebase('stock', stock, guildId);
+
+
+            const usernameFieldName = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+
+            const embed = new EmbedBuilder()
+                .setTitle('Order Placed Successfully!')
+                .setColor(0x2f3136)
+                .setDescription(`Order ID: ${orderId}`)
                 .addFields(
-                    { name: 'Order ID', value: orderId, inline: true },
-                    { name: 'Customer', value: `${interaction.user.username} (${interaction.user.id})`, inline: true },
                     { name: 'Item', value: order.itemName, inline: true },
                     { name: 'Quantity', value: quantity.toString(), inline: true },
                     { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
-                    { name: usernameFieldName3, value: username, inline: true },
-                    { name: 'Payment Method', value: paymentMethod, inline: false }
+                    { name: usernameFieldName, value: username, inline: true },
+                    { name: 'Payment Method', value: paymentMethod, inline: true },
+                    { name: 'Next Steps', value: `Go to <#1402669563849609256> to checkout your order`, inline: false }
                 )
                 .setTimestamp();
 
-            await admin.send({ embeds: [adminDmEmbed] });
-        } catch (error) {
-            console.error('Could not send DM notification to admin:', error);
-        }
+            await interaction.reply({ embeds: [embed], ephemeral: true });
 
-        try {
-            const dmEmbed = new EmbedBuilder()
-                .setTitle('Order Confirmation')
-                .setColor(0x2f3136)
-                .setDescription(`Thank you for your order! Order ID: ${orderId}`)
-                .addFields(
-                    { name: 'Item', value: order.itemName },
-                    { name: 'Quantity', value: quantity.toString() },
-                    { name: 'Total', value: `₱${totalPrice.toFixed(2)}` }
-                )
-                .setTimestamp();
+            // Send order notification to order channel
+            const settings = await loadDataFromFirebase('settings', guildId);
+            if (settings.orderChannel) {
+                try {
+                    const orderChannel = await client.channels.fetch(settings.orderChannel);
+                    const usernameFieldName2 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
 
-            await interaction.user.send({ embeds: [dmEmbed] });
+                    const orderEmbed = new EmbedBuilder()
+                        .setTitle('Pending Orders')
+                        .setColor(0xffff00)
+                        .setAuthor({ 
+                            name: `${interaction.user.username} (${interaction.user.displayname || interaction.user.username})`,
+                            iconURL: interaction.user.displayAvatarURL()
+                        })
+                        .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${username}\n**Payment Method:** ${paymentMethod}`)
+                        .setTimestamp();
+
+                    await orderChannel.send({ embeds: [orderEmbed] });
+                } catch (error) {
+                    console.error('Could not send order notification:', error);
+                }
+            }
+
+            // Send automatic DM notification to admin for new pending orders
+            try {
+                const guild = await client.guilds.fetch(guildId);
+                const adminId = guild.ownerId; // Gets the server owner ID
+                const admin = await client.users.fetch(adminId);
+
+                const usernameFieldName3 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+
+                const adminDmEmbed = new EmbedBuilder()
+                    .setTitle('New Pending Order Alert')
+                    .setColor(0xff9900)
+                    .setDescription(`A new order has been placed and requires your attention!`)
+                    .addFields(
+                        { name: 'Order ID', value: orderId, inline: true },
+                        { name: 'Customer', value: `${interaction.user.username} (${interaction.user.id})`, inline: true },
+                        { name: 'Item', value: order.itemName, inline: true },
+                        { name: 'Quantity', value: quantity.toString(), inline: true },
+                        { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
+                        { name: usernameFieldName3, value: username, inline: true },
+                        { name: 'Payment Method', value: paymentMethod, inline: false }
+                    )
+                    .setTimestamp();
+
+                await admin.send({ embeds: [adminDmEmbed] });
+            } catch (error) {
+                console.error('Could not send DM notification to admin:', error);
+            }
+
+            try {
+                const dmEmbed = new EmbedBuilder()
+                    .setTitle('Order Confirmation')
+                    .setColor(0x2f3136)
+                    .setDescription(`Thank you for your order! Order ID: ${orderId}`)
+                    .addFields(
+                        { name: 'Item', value: order.itemName },
+                        { name: 'Quantity', value: quantity.toString() },
+                        { name: 'Total', value: `₱${totalPrice.toFixed(2)}` }
+                    )
+                    .setTimestamp();
+
+                await interaction.user.send({ embeds: [dmEmbed] });
+            } catch (error) {
+                console.error('Could not send DM to user:', error);
+            }
+
         } catch (error) {
-            console.error('Could not send DM to user:', error);
+            console.error('Error processing order:', error);
+            await interaction.reply({ content: `An error occurred while processing your order: ${error.message}`, ephemeral: true });
         }
     }
 }
