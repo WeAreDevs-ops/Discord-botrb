@@ -698,7 +698,7 @@ async function handleAddAccountCommand(interaction) {
     const itemId = `account_${timestamp}`;
 
     stock[itemId] = { 
-        name: username,
+        name: `Account (${username})`,
         username: username,
         description: description,
         premium: premium ? 'True' : 'False',
@@ -1320,8 +1320,8 @@ async function handleModal(interaction) {
             quantity = 1;
         }
 
-        // For accounts, username is not needed. For Robux, it's the gamepass link
-        const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : 'N/A';
+        // For accounts, use the account username. For Robux, it's the gamepass link
+        const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : stock[itemId].username;
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
         const guildId = interaction.guildId;
 
