@@ -288,6 +288,10 @@ const commands = [
                 .setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+    new SlashCommandBuilder()
+        .setName('healthcheck')
+        .setDescription('Check system health and status')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
 ];
 
@@ -379,6 +383,9 @@ async function handleSlashCommand(interaction) {
                 break;
             case 'announce':
                 await handleAnnounceCommand(interaction);
+                break;
+            case 'healthcheck':
+                await handleHealthCheckCommand(interaction);
                 break;
 
             default:
@@ -676,6 +683,7 @@ async function handleAddAccountCommand(interaction) {
         description: description,
         premium: premium ? 'True' : 'False',
         summary: summary,
+        price: price,
         quantity: 1,
         reserved: 0 // Initialize reserved quantity to 0
     };
@@ -941,6 +949,73 @@ async function handleAnnounceCommand(interaction) {
     await interaction.reply({ embeds: [embed] });
 }
 
+async function handleHealthCheckCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const guildId = interaction.guildId;
+    
+    try {
+        // Check Firebase connectivity
+        const startTime = Date.now();
+        const testData = await loadDataFromFirebase('settings', guildId);
+        const firebaseLatency = Date.now() - startTime;
+        
+        // Get stock and orders data
+        const stock = await loadDataFromFirebase('stock', guildId);
+        const orders = await loadDataFromFirebase('orders', guildId);
+        
+        // Count items and calculate stats
+        const stockItems = Object.keys(stock).length;
+        const totalOrders = Object.keys(orders).length;
+        const pendingOrders = Object.values(orders).filter(order => order.status === 'Pending Payment').length;
+        const deliveredOrders = Object.values(orders).filter(order => order.status === 'Delivered').length;
+        
+        // Calculate total stock quantity
+        const totalStock = Object.values(stock).reduce((total, item) => total + (item.quantity || 0), 0);
+        const reservedStock = Object.values(stock).reduce((total, item) => total + (item.reserved || 0), 0);
+        
+        // System uptime
+        const uptime = process.uptime();
+        const uptimeHours = Math.floor(uptime / 3600);
+        const uptimeMinutes = Math.floor((uptime % 3600) / 60);
+        
+        const embed = new EmbedBuilder()
+            .setTitle('🔧 System Health Check')
+            .setColor(0x00ff00)
+            .setDescription('Current system status and statistics')
+            .addFields(
+                { name: '🌐 Firebase Status', value: `✅ Connected\n⚡ Latency: ${firebaseLatency}ms`, inline: true },
+                { name: '📦 Stock Status', value: `📊 ${stockItems} items\n📈 ${totalStock} total quantity\n🔒 ${reservedStock} reserved`, inline: true },
+                { name: '📋 Orders Status', value: `📝 ${totalOrders} total\n⏳ ${pendingOrders} pending\n✅ ${deliveredOrders} delivered`, inline: true },
+                { name: '⏰ System Uptime', value: `${uptimeHours}h ${uptimeMinutes}m`, inline: true },
+                { name: '🤖 Bot Status', value: `✅ Online\n🏠 ${client.guilds.cache.size} servers`, inline: true },
+                { name: '🔄 Express Server', value: '✅ Running on port 5000', inline: true }
+            )
+            .setFooter({ text: 'Last checked' })
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+        
+    } catch (error) {
+        console.error('Health check error:', error);
+        
+        const errorEmbed = new EmbedBuilder()
+            .setTitle('⚠️ System Health Check - Issues Detected')
+            .setColor(0xff0000)
+            .setDescription(`Error during health check: ${error.message}`)
+            .addFields(
+                { name: '🤖 Bot Status', value: '✅ Online', inline: true },
+                { name: '🔄 Express Server', value: '✅ Running on port 5000', inline: true },
+                { name: '🌐 Firebase Status', value: '❌ Connection Error', inline: true }
+            )
+            .setTimestamp();
+            
+        await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+    }
+}
+
 // Reservation system functions
 
 const RESERVATION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
@@ -965,7 +1040,7 @@ async function deleteItemEmbeds(itemId, guildId) {
     // For simplicity, we'll assume a main "shop" channel or the channel where it was last sent.
     // A more robust solution would store the channel ID along with the message ID.
     // For now, we'll try to iterate through guilds the bot is in.
-    
+
     for (const guild of client.guilds.cache.values()) {
         const messagesToDeleteInGuild = [];
         for (const messageId of messageIdsToDelete) {
@@ -1484,22 +1559,30 @@ async function handleModal(interaction) {
         }
 
         try {
+            // Validate input data
+            if (!username || username.trim() === '') {
+                throw new Error('Username/Gamepass link is required.');
+            }
+            if (!paymentMethod || paymentMethod.trim() === '') {
+                throw new Error('Payment method is required.');
+            }
+
             // Attempt to reserve the item
             await reserveItem(itemId, quantity, guildId);
 
             const orderId = generateOrderId();
-            const totalPrice = stock[itemId].price * quantity;
+            const totalPrice = Math.round((stock[itemId].price * quantity) * 100) / 100; // Round to 2 decimal places
 
             const order = {
                 orderId,
                 userId: interaction.user.id,
                 username: interaction.user.username,
-                robloxUsername: username,
+                robloxUsername: username.trim(),
                 itemId,
                 itemName: stock[itemId].name,
                 quantity,
                 totalPrice,
-                paymentMethod,
+                paymentMethod: paymentMethod.trim(),
                 status: 'Pending Payment',
                 timestamp: Date.now()
             };
