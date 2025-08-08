@@ -1404,6 +1404,34 @@ async function handleModal(interaction) {
             }
         }
 
+        // Send automatic DM notification to admin for new pending orders
+        try {
+            const guild = await client.guilds.fetch(guildId);
+            const adminId = guild.ownerId; // Gets the server owner ID
+            const admin = await client.users.fetch(adminId);
+            
+            const usernameFieldName3 = isRobuxItem ? 'Gamepass Link' : 'Roblox Username';
+            
+            const adminDmEmbed = new EmbedBuilder()
+                .setTitle('New Pending Order Alert')
+                .setColor(0xff9900)
+                .setDescription(`A new order has been placed and requires your attention!`)
+                .addFields(
+                    { name: 'Order ID', value: orderId, inline: true },
+                    { name: 'Customer', value: `${interaction.user.username} (${interaction.user.id})`, inline: true },
+                    { name: 'Item', value: order.itemName, inline: true },
+                    { name: 'Quantity', value: quantity.toString(), inline: true },
+                    { name: 'Total Price', value: `₱${totalPrice.toFixed(2)}`, inline: true },
+                    { name: usernameFieldName3, value: username, inline: true },
+                    { name: 'Payment Method', value: paymentMethod, inline: false }
+                )
+                .setTimestamp();
+
+            await admin.send({ embeds: [adminDmEmbed] });
+        } catch (error) {
+            console.error('Could not send DM notification to admin:', error);
+        }
+
         try {
             const dmEmbed = new EmbedBuilder()
                 .setTitle('Order Confirmation')
