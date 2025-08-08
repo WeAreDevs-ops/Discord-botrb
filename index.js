@@ -1320,12 +1320,12 @@ async function handleModal(interaction) {
             quantity = 1;
         }
 
+        const guildId = interaction.guildId;
+        const stock = await loadDataFromFirebase('stock', guildId);
+        
         // For accounts, use the account username. For Robux, it's the gamepass link
         const username = isRobuxItem ? interaction.fields.getTextInputValue('username') : stock[itemId].username;
         const paymentMethod = interaction.fields.getTextInputValue('payment_method');
-        const guildId = interaction.guildId;
-
-        const stock = await loadDataFromFirebase('stock', guildId);
         const orders = await loadDataFromFirebase('orders', guildId);
 
         if (!stock[itemId]) {
