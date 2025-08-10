@@ -298,6 +298,24 @@ const commands = [
         .setDescription('Display ticket support panel')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+    new SlashCommandBuilder()
+        .setName('ticketcategory')
+        .setDescription('Set the ticket category for creating private channels')
+        .addChannelOption(option =>
+            option.setName('category')
+                .setDescription('Category where ticket channels will be created')
+                .setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('closeticket')
+        .setDescription('Close a ticket and delete its channel')
+        .addStringOption(option =>
+            option.setName('ticket_id')
+                .setDescription('Ticket ID to close (optional if used in ticket channel)')
+                .setRequired(false))
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
 ];
 
 // Register slash commands
@@ -394,6 +412,12 @@ async function handleSlashCommand(interaction) {
                 break;
             case 'ticket':
                 await handleTicketCommand(interaction);
+                break;
+            case 'ticketcategory':
+                await handleTicketCategoryCommand(interaction);
+                break;
+            case 'closeticket':
+                await handleCloseTicketCommand(interaction);
                 break;
 
             default:
@@ -1159,6 +1183,136 @@ async function handleTicketCommand(interaction) {
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
+}
+
+async function handleTicketCategoryCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const category = interaction.options.getChannel('category');
+    const guildId = interaction.guildId;
+
+    // Verify it's a category channel
+    if (category.type !== 4) { // 4 = Category channel type
+        return await interaction.reply({ content: 'Please select a category channel!', ephemeral: true });
+    }
+
+    const settings = await loadDataFromFirebase('settings', guildId);
+    settings.ticketCategory = category.id;
+    await saveDataToFirebase('settings', settings, guildId);
+
+    await interaction.reply({ 
+        content: `Ticket category set to ${category.name}. New tickets will create private channels here.`, 
+        ephemeral: true 
+    });
+}
+
+async function handleCloseTicketCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    let ticketId = interaction.options.getString('ticket_id');
+    const guildId = interaction.guildId;
+    const currentChannel = interaction.channel;
+
+    const tickets = await loadDataFromFirebase('tickets', guildId);
+    
+    // If no ticket ID provided, try to auto-detect from current channel
+    if (!ticketId) {
+        // Check if current channel is a ticket channel by name pattern
+        if (currentChannel.name.startsWith('ticket-')) {
+            ticketId = currentChannel.name.replace('ticket-', '');
+        } else {
+            // Look for ticket by channel ID
+            const foundTicket = Object.entries(tickets).find(([_, ticket]) => ticket.channelId === currentChannel.id);
+            if (foundTicket) {
+                ticketId = foundTicket[0];
+            }
+        }
+        
+        if (!ticketId) {
+            return await interaction.reply({ 
+                content: 'Could not detect ticket from current channel. Please provide a ticket ID or use this command in a ticket channel.', 
+                ephemeral: true 
+            });
+        }
+    }
+    
+    if (!tickets[ticketId]) {
+        return await interaction.reply({ content: 'Ticket not found!', ephemeral: true });
+    }
+
+    const ticket = tickets[ticketId];
+    
+    // Update ticket status to closed
+    tickets[ticketId].status = 'Closed';
+    tickets[ticketId].closedAt = Date.now();
+    tickets[ticketId].closedBy = interaction.user.id;
+    
+    await saveDataToFirebase('tickets', tickets, guildId);
+
+    // Try to delete the ticket channel
+    if (ticket.channelId) {
+        try {
+            const ticketChannel = await client.channels.fetch(ticket.channelId);
+            
+            // If we're in the ticket channel, acknowledge before deletion
+            if (currentChannel.id === ticket.channelId) {
+                await interaction.reply({ 
+                    content: `✅ Ticket ${ticketId} is being closed. This channel will be deleted in 5 seconds...`, 
+                    ephemeral: false 
+                });
+                
+                // Wait 5 seconds before deleting so user can see the message
+                setTimeout(async () => {
+                    try {
+                        await ticketChannel.delete();
+                    } catch (error) {
+                        console.error('Error deleting ticket channel:', error);
+                    }
+                }, 5000);
+            } else {
+                await ticketChannel.delete();
+                await interaction.reply({ 
+                    content: `✅ Ticket ${ticketId} has been closed and the channel has been deleted.`, 
+                    ephemeral: true 
+                });
+            }
+        } catch (error) {
+            console.error('Error deleting ticket channel:', error);
+            await interaction.reply({ 
+                content: `✅ Ticket ${ticketId} has been marked as closed, but couldn't delete the channel. Please delete it manually.`, 
+                ephemeral: true 
+            });
+        }
+    } else {
+        await interaction.reply({ 
+            content: `✅ Ticket ${ticketId} has been marked as closed.`, 
+            ephemeral: true 
+        });
+    }
+
+    // Notify the user who created the ticket
+    try {
+        const user = await client.users.fetch(ticket.userId);
+        const notificationEmbed = new EmbedBuilder()
+            .setTitle('🔒 Ticket Closed')
+            .setColor(0xff0000)
+            .setDescription(`Your support ticket ${ticketId} has been closed by an administrator.`)
+            .addFields(
+                { name: 'Subject', value: ticket.subject, inline: true },
+                { name: 'Category', value: ticket.category, inline: true },
+                { name: 'Closed At', value: new Date().toLocaleString(), inline: true }
+            )
+            .setFooter({ text: 'Thank you for using our support system!' })
+            .setTimestamp();
+
+        await user.send({ embeds: [notificationEmbed] });
+    } catch (error) {
+        console.error('Could not send ticket closure notification to user:', error);
+    }
 }
 
 async function handleHealthCheckCommand(interaction) {
@@ -1983,60 +2137,92 @@ async function handleModal(interaction) {
                 { name: 'Category', value: category, inline: true },
                 { name: 'Status', value: 'Open', inline: true }
             )
-            .setFooter({ text: 'Our support team will review your ticket and respond as soon as possible.' })
+            .setFooter({ text: 'Check the ticket channel for public conversation with our support team.' })
             .setTimestamp();
 
         await interaction.reply({ embeds: [userEmbed], ephemeral: true });
 
-        // Send notification to admin
-        try {
-            const guild = await client.guilds.fetch(guildId);
-            const adminId = guild.ownerId;
-            const admin = await client.users.fetch(adminId);
-
-            const adminEmbed = new EmbedBuilder()
-                .setTitle('🎫 New Support Ticket')
-                .setColor(0xff9900)
-                .setDescription(`A new support ticket has been created and requires attention!`)
-                .addFields(
-                    { name: 'Ticket ID', value: ticketId, inline: true },
-                    { name: 'User', value: `${interaction.user.username} (${interaction.user.id})`, inline: true },
-                    { name: 'Category', value: category, inline: true },
-                    { name: 'Subject', value: subject, inline: false },
-                    { name: 'Description', value: description, inline: false }
-                );
-
-            if (orderId && orderId !== 'N/A') {
-                adminEmbed.addFields({ name: 'Related Order ID', value: orderId, inline: true });
-            }
-
-            adminEmbed.setTimestamp();
-
-            await admin.send({ embeds: [adminEmbed] });
-        } catch (error) {
-            console.error('Could not send ticket notification to admin:', error);
-        }
-
-        // Send to order channel if configured
+        // Create private ticket channel
         const settings = await loadDataFromFirebase('settings', guildId);
-        if (settings.orderChannel) {
+        if (settings.ticketCategory) {
             try {
-                const orderChannel = await client.channels.fetch(settings.orderChannel);
+                const guild = await client.guilds.fetch(guildId);
+                const category = await client.channels.fetch(settings.ticketCategory);
+
+                // Create private channel
+                const ticketChannel = await guild.channels.create({
+                    name: `ticket-${ticketId}`,
+                    type: 0, // Text channel
+                    parent: category.id,
+                    permissionOverwrites: [
+                        {
+                            id: guild.roles.everyone.id,
+                            deny: ['ViewChannel']
+                        },
+                        {
+                            id: interaction.user.id,
+                            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory']
+                        }
+                    ]
+                });
+
+                // Save channel ID to ticket
+                tickets[ticketId].channelId = ticketChannel.id;
+                await saveDataToFirebase('tickets', tickets, guildId);
 
                 const channelEmbed = new EmbedBuilder()
-                    .setTitle('🎫 New Support Ticket')
+                    .setTitle('🎫 Support Ticket Created')
                     .setColor(0xff9900)
-                    .setAuthor({ 
-                        name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
-                        iconURL: interaction.user.displayAvatarURL()
-                    })
-                    .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${category}\n**Subject:** ${subject}\n**Status:** Open`)
+                    .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${category}\n**Subject:** ${subject}\n**Description:** ${description}`)
+                    .addFields(
+                        { name: 'Customer', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: 'Status', value: 'Open', inline: true }
+                    );
+
+                if (orderId && orderId !== 'N/A') {
+                    channelEmbed.addFields({ name: 'Related Order ID', value: orderId, inline: true });
+                }
+
+                channelEmbed.addFields(
+                    { name: 'Instructions', value: 'Please describe your issue in detail. An administrator will respond soon.\n\nTo close this ticket, an admin can use `/closeticket ' + ticketId + '`', inline: false }
+                );
+
+                channelEmbed.setTimestamp();
+
+                await ticketChannel.send({ 
+                    content: `<@${interaction.user.id}> Welcome to your private support ticket! Please wait for an administrator to assist you.`,
+                    embeds: [channelEmbed] 
+                });
+
+                // Update user confirmation to mention the private channel
+                const updatedUserEmbed = new EmbedBuilder()
+                    .setTitle('🎫 Support Ticket Created')
+                    .setColor(0x00ff00)
+                    .setDescription(`Your support ticket has been created successfully!`)
+                    .addFields(
+                        { name: 'Ticket ID', value: ticketId, inline: true },
+                        { name: 'Subject', value: subject, inline: true },
+                        { name: 'Category', value: category, inline: true },
+                        { name: 'Status', value: 'Open', inline: true },
+                        { name: 'Private Channel', value: `<#${ticketChannel.id}>`, inline: false }
+                    )
+                    .setFooter({ text: 'Please check the private channel for conversation with our support team.' })
                     .setTimestamp();
 
-                await orderChannel.send({ embeds: [channelEmbed] });
+                await interaction.editReply({ embeds: [updatedUserEmbed] });
+
             } catch (error) {
-                console.error('Could not send ticket notification to order channel:', error);
+                console.error('Could not create private ticket channel:', error);
+                await interaction.followUp({ 
+                    content: 'Ticket created but failed to create private channel. Please contact an administrator.', 
+                    ephemeral: true 
+                });
             }
+        } else {
+            await interaction.followUp({ 
+                content: 'Ticket created but no ticket category is set. Please ask an administrator to set one using `/ticketcategory`.', 
+                ephemeral: true 
+            });
         }
 
         return;
