@@ -2190,7 +2190,7 @@ async function handleModal(interaction) {
                 }
 
                 channelEmbed.addFields(
-                    { name: 'Instructions', value: 'Please describe your issue in detail. An administrator will respond soon.\n\n'`', inline: false }
+                    { name: 'Instructions', value: 'Please describe your issue in detail. An administrator will respond soon.\n\n', inline: false }
                 );
 
                 channelEmbed.setTimestamp();
