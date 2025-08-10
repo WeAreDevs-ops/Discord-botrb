@@ -921,7 +921,7 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
     try {
         const user = await client.users.fetch(order.userId);
         const userEmbed = new EmbedBuilder()
-            .setTitle('🎉 Your Order Has Been Delivered!')
+            .setTitle('Your Order Has Been Delivered!')
             .setColor(0x00ff00)
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
@@ -945,7 +945,7 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
             }
             
             userEmbed.addFields(
-                { name: '🛡️ Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
+                { name: 'Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
             );
         } else {
             // For Robux orders, just show regular delivery confirmation
@@ -971,8 +971,8 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
 
     // Reply with success message without waiting for interaction timeout
     const successMessage = accountDetails && order.itemId && order.itemId.startsWith('account_') 
-        ? `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
-        : `✅ Order ${orderId} marked as delivered! Customer has been notified.`;
+        ? `Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
+        : `Order ${orderId} marked as delivered! Customer has been notified.`;
         
     await interaction.reply({ 
         content: successMessage, 
@@ -1091,7 +1091,7 @@ async function handleDeliverCommand(interaction) {
         try {
             const user = await client.users.fetch(order.userId);
             const userEmbed = new EmbedBuilder()
-                .setTitle('🎉 Your Order Has Been Delivered!')
+                .setTitle('Your Order Has Been Delivered!')
                 .setColor(0x00ff00)
                 .setDescription(`Your order ${orderId} has been successfully delivered!`)
                 .addFields(
@@ -1109,13 +1109,13 @@ async function handleDeliverCommand(interaction) {
 
         // Edit the deferred reply with success message
         await interaction.editReply({ 
-            content: `✅ Order ${orderId} marked as delivered! Customer has been notified.`
+            content: `Order ${orderId} marked as delivered! Customer has been notified.`
         });
 
     } catch (error) {
         console.error('Error processing Robux delivery:', error);
         await interaction.editReply({ 
-            content: '❌ An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
+            content: 'An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
         });
     }
 }
@@ -1162,13 +1162,13 @@ async function handleTicketCommand(interaction) {
     }
 
     const embed = new EmbedBuilder()
-        .setTitle('🎫 Support Ticket System')
+        .setTitle('Support Ticket System')
         .setColor(0x2f3136)
         .setDescription('Need help with your order or have questions? Click the button below to create a support ticket.')
         .addFields(
-            { name: '📞 What can we help you with?', value: '• Order status inquiries\n• Payment issues\n• Technical support\n• General questions\n• Refund requests', inline: false },
-            { name: '⏰ Response Time', value: 'We typically respond within 24 hours', inline: true },
-            { name: '🔍 Before creating a ticket', value: 'Check your order status first using `/status`', inline: true }
+            { name: 'What can we help you with?', value: '• Order status inquiries\n• Payment issues\n• Technical support\n• General questions\n• Refund requests', inline: false },
+            { name: 'Response Time', value: 'We typically respond within 24 hours', inline: true },
+            { name: 'Before creating a ticket', value: 'Check your order status first using <#1402669510208520243>', inline: true }
         )
         .setFooter({ text: 'Click the button below to get started' })
         .setTimestamp();
@@ -1179,7 +1179,7 @@ async function handleTicketCommand(interaction) {
                 .setCustomId('create_ticket')
                 .setLabel('Create Support Ticket')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('🎫')
+                
         );
 
     await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
@@ -1261,7 +1261,7 @@ async function handleCloseTicketCommand(interaction) {
             // If we're in the ticket channel, acknowledge before deletion
             if (currentChannel.id === ticket.channelId) {
                 await interaction.reply({ 
-                    content: `✅ Ticket ${ticketId} is being closed. This channel will be deleted in 5 seconds...`, 
+                    content: `Ticket ${ticketId} is being closed. This channel will be deleted in 5 seconds...`, 
                     ephemeral: false 
                 });
                 
@@ -1276,20 +1276,20 @@ async function handleCloseTicketCommand(interaction) {
             } else {
                 await ticketChannel.delete();
                 await interaction.reply({ 
-                    content: `✅ Ticket ${ticketId} has been closed and the channel has been deleted.`, 
+                    content: `Ticket ${ticketId} has been closed and the channel has been deleted.`, 
                     ephemeral: true 
                 });
             }
         } catch (error) {
             console.error('Error deleting ticket channel:', error);
             await interaction.reply({ 
-                content: `✅ Ticket ${ticketId} has been marked as closed, but couldn't delete the channel. Please delete it manually.`, 
+                content: `Ticket ${ticketId} has been marked as closed, but couldn't delete the channel. Please delete it manually.`, 
                 ephemeral: true 
             });
         }
     } else {
         await interaction.reply({ 
-            content: `✅ Ticket ${ticketId} has been marked as closed.`, 
+            content: `Ticket ${ticketId} has been marked as closed.`, 
             ephemeral: true 
         });
     }
@@ -1298,7 +1298,7 @@ async function handleCloseTicketCommand(interaction) {
     try {
         const user = await client.users.fetch(ticket.userId);
         const notificationEmbed = new EmbedBuilder()
-            .setTitle('🔒 Ticket Closed')
+            .setTitle('Ticket Closed')
             .setColor(0xff0000)
             .setDescription(`Your support ticket ${ticketId} has been closed by an administrator.`)
             .addFields(
@@ -2128,7 +2128,7 @@ async function handleModal(interaction) {
 
         // Send confirmation to user
         const userEmbed = new EmbedBuilder()
-            .setTitle('🎫 Support Ticket Created')
+            .setTitle('Support Ticket Created')
             .setColor(0x00ff00)
             .setDescription(`Your support ticket has been created successfully!`)
             .addFields(
@@ -2177,7 +2177,7 @@ async function handleModal(interaction) {
                 console.log(`Successfully created ticket channel: ${ticketChannel.id} for ticket: ${ticketId}`);
 
                 const channelEmbed = new EmbedBuilder()
-                    .setTitle('🎫 Support Ticket Created')
+                    .setTitle('Support Ticket Created')
                     .setColor(0xff9900)
                     .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${ticket.category}\n**Subject:** ${subject}\n**Description:** ${description}`)
                     .addFields(
@@ -2190,7 +2190,7 @@ async function handleModal(interaction) {
                 }
 
                 channelEmbed.addFields(
-                    { name: 'Instructions', value: 'Please describe your issue in detail. An administrator will respond soon.\n\nTo close this ticket, an admin can use `/closeticket ' + ticketId + '`', inline: false }
+                    { name: 'Instructions', value: 'Please describe your issue in detail. An administrator will respond soon.\n\n'`', inline: false }
                 );
 
                 channelEmbed.setTimestamp();
@@ -2202,7 +2202,7 @@ async function handleModal(interaction) {
 
                 // Update user confirmation to mention the private channel
                 const updatedUserEmbed = new EmbedBuilder()
-                    .setTitle('🎫 Support Ticket Created')
+                    .setTitle('Support Ticket Created')
                     .setColor(0x00ff00)
                     .setDescription(`Your support ticket has been created successfully!`)
                     .addFields(
@@ -2224,7 +2224,7 @@ async function handleModal(interaction) {
                 if (tickets[ticketId].channelId) {
                     // Channel was created successfully, just update the user
                     const updatedUserEmbed = new EmbedBuilder()
-                        .setTitle('🎫 Support Ticket Created')
+                        .setTitle('Support Ticket Created')
                         .setColor(0x00ff00)
                         .setDescription(`Your support ticket has been created successfully!`)
                         .addFields(
@@ -2276,7 +2276,7 @@ async function handleModal(interaction) {
 
         // SECURITY: Validate credentials are provided
         if (!accountUsername || !accountPassword) {
-            return await interaction.editReply({ content: '🔒 Both username and password are required for account delivery!' });
+            return await interaction.editReply({ content: 'Both username and password are required for account delivery!' });
         }
 
         const order = orders[orderId];
@@ -2346,9 +2346,9 @@ async function handleModal(interaction) {
             try {
                 const user = await client.users.fetch(order.userId);
                 const userEmbed = new EmbedBuilder()
-                    .setTitle('🔒 Your Order Has Been Delivered!')
+                    .setTitle('Your Order Has Been Delivered!')
                     .setColor(0x00ff00)
-                    .setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n⚠️ **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`)
+                    .setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`)
                     .addFields(
                         { name: 'Item', value: order.itemName, inline: true },
                         { name: 'Quantity', value: order.quantity.toString(), inline: true },
@@ -2364,7 +2364,7 @@ async function handleModal(interaction) {
                 }
                 
                 userEmbed.addFields(
-                    { name: '🛡️ Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
+                    { name: 'Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
                 );
                 
                 userEmbed.setFooter({ text: 'Thank you for choosing our service! Keep your credentials safe.' });
@@ -2378,13 +2378,13 @@ async function handleModal(interaction) {
 
             // Edit the deferred reply with success message
             await interaction.editReply({ 
-                content: `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
+                content: `Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
             });
 
         } catch (error) {
             console.error('Error processing account delivery:', error);
             await interaction.editReply({ 
-                content: '❌ An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
+                content: 'An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
             });
         }
         
