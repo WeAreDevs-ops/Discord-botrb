@@ -823,24 +823,13 @@ async function handleAllOrdersCommand(interaction) {
     await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
-async function handleDeliverCommand(interaction) {
-    if (!interaction.memberPermissions.has('Administrator')) {
-        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
-    }
-
-    const orderId = interaction.options.getString('order_id');
+async function processDelivery(interaction, orderId, order, accountDetails) {
     const guildId = interaction.guildId;
-    const orders = await loadDataFromFirebase('orders', guildId);
     const settings = await loadDataFromFirebase('settings', guildId);
     const stock = await loadDataFromFirebase('stock', guildId);
 
-    if (!orders[orderId]) {
-        return await interaction.reply({ content: 'Order not found!', ephemeral: true });
-    }
-
-    const order = orders[orderId];
-
     // Update order status to delivered
+    const orders = await loadDataFromFirebase('orders', guildId);
     orders[orderId].status = 'Delivered';
 
     // Handle stock updates when order is delivered
@@ -863,7 +852,7 @@ async function handleDeliverCommand(interaction) {
     await saveDataToFirebase('orders', orders, guildId);
     await saveDataToFirebase('stock', stock, guildId);
 
-    // Send delivery notification to the delivery channel
+    // Send delivery notification to the delivery channel (WITHOUT sensitive credentials)
     if (settings.deliveryChannel) {
         try {
             const deliveryChannel = await client.channels.fetch(settings.deliveryChannel);
@@ -879,40 +868,131 @@ async function handleDeliverCommand(interaction) {
                     { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
                     { name: 'Payment Method', value: order.paymentMethod, inline: true },
                     { name: 'Status', value: 'Delivered', inline: true }
-                )
-                .setTimestamp();
+                );
 
+            // SECURITY: Never include account credentials in public channels
+            if (accountDetails) {
+                deliveredEmbed.addFields(
+                    { name: 'Account Type', value: 'Account credentials sent via DM', inline: false }
+                );
+            }
+            
+            deliveredEmbed.setTimestamp();
             await deliveryChannel.send({ embeds: [deliveredEmbed] });
         } catch (error) {
-            console.error('Could not send delivery notification to delivery channel:', error);
+            // SECURITY: Don't log sensitive data in error messages
+            console.error('Could not send delivery notification to delivery channel');
         }
     }
 
-    // Send DM to the customer
+    // Send SECURE DM to the customer with credentials
     try {
         const user = await client.users.fetch(order.userId);
         const userEmbed = new EmbedBuilder()
-            .setTitle('Your Order Has Been Delivered!')
+            .setTitle('🔒 Your Order Has Been Delivered!')
             .setColor(0x00ff00)
-            .setDescription(`Thank you for your purchase! Your order ${orderId} has been successfully delivered.`)
+            .setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n⚠️ **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`)
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
                 { name: 'Quantity', value: order.quantity.toString(), inline: true },
                 { name: 'Order ID', value: orderId, inline: true }
-            )
-            .setFooter({ text: 'Thank you for choosing our service!' })
-            .setTimestamp();
+            );
+
+        if (accountDetails) {
+            userEmbed.addFields(
+                { name: '👤 Username', value: `||${accountDetails.username}||`, inline: true },
+                { name: '🔑 Password', value: `||${accountDetails.password}||`, inline: true }
+            );
+            
+            if (accountDetails.additionalInfo && accountDetails.additionalInfo.trim() !== '') {
+                userEmbed.addFields(
+                    { name: '📝 Additional Info', value: `||${accountDetails.additionalInfo}||`, inline: false }
+                );
+            }
+            
+            userEmbed.addFields(
+                { name: '🛡️ Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
+            );
+        }
+        
+        userEmbed.setFooter({ text: 'Thank you for choosing our service! Keep your credentials safe.' });
+        userEmbed.setTimestamp();
 
         await user.send({ embeds: [userEmbed] });
+        
+        // Clear sensitive data from memory immediately
+        if (accountDetails) {
+            accountDetails.username = '[REDACTED]';
+            accountDetails.password = '[REDACTED]';
+            accountDetails.additionalInfo = '[REDACTED]';
+        }
+        
     } catch (error) {
-        console.error('Could not send DM to user:', error);
+        // SECURITY: Don't log sensitive data in error messages
+        console.error('Could not send secure DM to user');
     }
 
     await interaction.reply({ 
-        content: `Order ${orderId} marked as delivered! Notification sent to delivery channel and customer has been DMed.`, 
+        content: `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`, 
         ephemeral: true 
     });
 }
+
+async function handleDeliverCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const orderId = interaction.options.getString('order_id');
+    const guildId = interaction.guildId;
+    const orders = await loadDataFromFirebase('orders', guildId);
+
+    if (!orders[orderId]) {
+        return await interaction.reply({ content: 'Order not found!', ephemeral: true });
+    }
+
+    const order = orders[orderId];
+
+    // Check if this is an account order
+    if (order.itemId && order.itemId.startsWith('account_')) {
+        // Show modal to input account credentials
+        const modal = new ModalBuilder()
+            .setCustomId(`deliver_account_${orderId}`)
+            .setTitle('Account Delivery Information');
+
+        const usernameInput = new TextInputBuilder()
+            .setCustomId('account_username')
+            .setLabel('Account Username')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const passwordInput = new TextInputBuilder()
+            .setCustomId('account_password')
+            .setLabel('Account Password')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+        const additionalInfoInput = new TextInputBuilder()
+            .setCustomId('additional_info')
+            .setLabel('Additional Information (Optional)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false)
+            .setPlaceholder('Any additional notes or instructions...');
+
+        const firstRow = new ActionRowBuilder().addComponents(usernameInput);
+        const secondRow = new ActionRowBuilder().addComponents(passwordInput);
+        const thirdRow = new ActionRowBuilder().addComponents(additionalInfoInput);
+
+        modal.addComponents(firstRow, secondRow, thirdRow);
+
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // For non-account orders, proceed with normal delivery
+    await processDelivery(interaction, orderId, order, null);
+}
+
 
 async function handleSetPaymentCommand(interaction) {
     if (!interaction.memberPermissions.has('Administrator')) {
@@ -955,32 +1035,32 @@ async function handleHealthCheckCommand(interaction) {
     }
 
     const guildId = interaction.guildId;
-    
+
     try {
         // Check Firebase connectivity
         const startTime = Date.now();
         const testData = await loadDataFromFirebase('settings', guildId);
         const firebaseLatency = Date.now() - startTime;
-        
+
         // Get stock and orders data
         const stock = await loadDataFromFirebase('stock', guildId);
         const orders = await loadDataFromFirebase('orders', guildId);
-        
+
         // Count items and calculate stats
         const stockItems = Object.keys(stock).length;
         const totalOrders = Object.keys(orders).length;
         const pendingOrders = Object.values(orders).filter(order => order.status === 'Pending Payment').length;
         const deliveredOrders = Object.values(orders).filter(order => order.status === 'Delivered').length;
-        
+
         // Calculate total stock quantity
         const totalStock = Object.values(stock).reduce((total, item) => total + (item.quantity || 0), 0);
         const reservedStock = Object.values(stock).reduce((total, item) => total + (item.reserved || 0), 0);
-        
+
         // System uptime
         const uptime = process.uptime();
         const uptimeHours = Math.floor(uptime / 3600);
         const uptimeMinutes = Math.floor((uptime % 3600) / 60);
-        
+
         const embed = new EmbedBuilder()
             .setTitle('🔧 System Health Check')
             .setColor(0x00ff00)
@@ -997,10 +1077,10 @@ async function handleHealthCheckCommand(interaction) {
             .setTimestamp();
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
-        
+
     } catch (error) {
         console.error('Health check error:', error);
-        
+
         const errorEmbed = new EmbedBuilder()
             .setTitle('⚠️ System Health Check - Issues Detected')
             .setColor(0xff0000)
@@ -1011,7 +1091,7 @@ async function handleHealthCheckCommand(interaction) {
                 { name: '🌐 Firebase Status', value: '❌ Connection Error', inline: true }
             )
             .setTimestamp();
-            
+
         await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
     }
 }
@@ -1628,7 +1708,7 @@ async function handleModal(interaction) {
                             name: `${interaction.user.username} (${interaction.user.displayname || interaction.user.username})`,
                             iconURL: interaction.user.displayAvatarURL()
                         })
-                        .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${username}\n**Payment Method:** ${paymentMethod}`)
+                        .setDescription(`**Order ID:** ${orderId}\n**Item:** ${order.itemName}\n**Quantity:** ${quantity}\n**Total:** ₱${totalPrice.toFixed(2)}\n**${usernameFieldName2}:** ${isRobuxItem ? '[Hidden for security]' : username}\n**Payment Method:** ${paymentMethod}`)
                         .setTimestamp();
 
                     await orderChannel.send({ embeds: [orderEmbed] });
@@ -1686,6 +1766,41 @@ async function handleModal(interaction) {
             console.error('Error processing order:', error);
             await interaction.reply({ content: `An error occurred while processing your order: ${error.message}`, ephemeral: true });
         }
+    }
+
+    // Handle modal submit for delivering account orders
+    if (interaction.customId.startsWith('deliver_account_')) {
+        const orderId = interaction.customId.replace('deliver_account_', '');
+        const guildId = interaction.guildId;
+        const orders = await loadDataFromFirebase('orders', guildId);
+        
+        // SECURITY: Get sensitive data without logging
+        const accountUsername = interaction.fields.getTextInputValue('account_username').trim();
+        const accountPassword = interaction.fields.getTextInputValue('account_password').trim();
+        const additionalInfo = interaction.fields.getTextInputValue('additional_info').trim();
+
+        if (!orders[orderId]) {
+            return await interaction.reply({ content: 'Order not found!', ephemeral: true });
+        }
+
+        // SECURITY: Validate credentials are provided
+        if (!accountUsername || !accountPassword) {
+            return await interaction.reply({ content: '🔒 Both username and password are required for account delivery!', ephemeral: true });
+        }
+
+        const order = orders[orderId];
+        
+        // SECURITY: Create secure credentials object (will be cleared after use)
+        const accountDetails = {
+            username: accountUsername,
+            password: accountPassword,
+            additionalInfo: additionalInfo || 'None'
+        };
+
+        await processDelivery(interaction, orderId, order, accountDetails);
+        
+        // SECURITY: Clear sensitive data from local variables immediately
+        interaction.fields.getTextInputValue = () => '[REDACTED]';
     }
 }
 
