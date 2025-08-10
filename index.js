@@ -2151,7 +2151,7 @@ async function handleModal(interaction) {
 
                 // Create private channel
                 const ticketChannel = await guild.channels.create({
-                    name: `ticket-${ticketId}`,
+                    name: ticketId,
                     type: 0, // Text channel
                     parent: category.id,
                     permissionOverwrites: [
