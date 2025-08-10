@@ -870,10 +870,10 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
                     { name: 'Status', value: 'Delivered', inline: true }
                 );
 
-            // SECURITY: Never include account credentials in public channels
-            if (accountDetails) {
+            // SECURITY: Only show account-specific info for actual account orders
+            if (accountDetails && order.itemId && order.itemId.startsWith('account_')) {
                 deliveredEmbed.addFields(
-                    { name: 'Account Type', value: 'Account credentials sent via DM', inline: false }
+                    { name: 'Delivery Method', value: 'Account credentials sent via DM', inline: false }
                 );
             }
             
@@ -885,20 +885,22 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
         }
     }
 
-    // Send SECURE DM to the customer with credentials
+    // Send SECURE DM to the customer
     try {
         const user = await client.users.fetch(order.userId);
         const userEmbed = new EmbedBuilder()
-            .setTitle('🔒 Your Order Has Been Delivered!')
+            .setTitle('🎉 Your Order Has Been Delivered!')
             .setColor(0x00ff00)
-            .setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n⚠️ **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`)
             .addFields(
                 { name: 'Item', value: order.itemName, inline: true },
                 { name: 'Quantity', value: order.quantity.toString(), inline: true },
                 { name: 'Order ID', value: orderId, inline: true }
             );
 
-        if (accountDetails) {
+        // Only add account credentials and security warnings for account orders
+        if (accountDetails && order.itemId && order.itemId.startsWith('account_')) {
+            userEmbed.setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n⚠️ **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`);
+            
             userEmbed.addFields(
                 { name: '👤 Username', value: `||${accountDetails.username}||`, inline: true },
                 { name: '🔑 Password', value: `||${accountDetails.password}||`, inline: true }
@@ -913,9 +915,12 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
             userEmbed.addFields(
                 { name: '🛡️ Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
             );
+        } else {
+            // For Robux orders, just show regular delivery confirmation
+            userEmbed.setDescription(`Your order ${orderId} has been successfully delivered!`);
         }
         
-        userEmbed.setFooter({ text: 'Thank you for choosing our service! Keep your credentials safe.' });
+        userEmbed.setFooter({ text: 'Thank you for choosing our service!' });
         userEmbed.setTimestamp();
 
         await user.send({ embeds: [userEmbed] });
@@ -932,8 +937,13 @@ async function processDelivery(interaction, orderId, order, accountDetails) {
         console.error('Could not send secure DM to user');
     }
 
+    // Reply with success message without waiting for interaction timeout
+    const successMessage = accountDetails && order.itemId && order.itemId.startsWith('account_') 
+        ? `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
+        : `✅ Order ${orderId} marked as delivered! Customer has been notified.`;
+        
     await interaction.reply({ 
-        content: `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`, 
+        content: successMessage, 
         ephemeral: true 
     });
 }
@@ -1770,6 +1780,9 @@ async function handleModal(interaction) {
 
     // Handle modal submit for delivering account orders
     if (interaction.customId.startsWith('deliver_account_')) {
+        // Defer the reply immediately to prevent timeout
+        await interaction.deferReply({ ephemeral: true });
+        
         const orderId = interaction.customId.replace('deliver_account_', '');
         const guildId = interaction.guildId;
         const orders = await loadDataFromFirebase('orders', guildId);
@@ -1780,12 +1793,12 @@ async function handleModal(interaction) {
         const additionalInfo = interaction.fields.getTextInputValue('additional_info').trim();
 
         if (!orders[orderId]) {
-            return await interaction.reply({ content: 'Order not found!', ephemeral: true });
+            return await interaction.editReply({ content: 'Order not found!' });
         }
 
         // SECURITY: Validate credentials are provided
         if (!accountUsername || !accountPassword) {
-            return await interaction.reply({ content: '🔒 Both username and password are required for account delivery!', ephemeral: true });
+            return await interaction.editReply({ content: '🔒 Both username and password are required for account delivery!' });
         }
 
         const order = orders[orderId];
@@ -1797,7 +1810,105 @@ async function handleModal(interaction) {
             additionalInfo: additionalInfo || 'None'
         };
 
-        await processDelivery(interaction, orderId, order, accountDetails);
+        try {
+            // Process delivery manually without calling interaction.reply again
+            const settings = await loadDataFromFirebase('settings', guildId);
+            const stock = await loadDataFromFirebase('stock', guildId);
+
+            // Update order status to delivered
+            orders[orderId].status = 'Delivered';
+
+            // Handle stock updates when order is delivered
+            const item = stock[order.itemId];
+            if (item) {
+                // Release any reserved quantity and reduce actual stock
+                if (item.reserved && item.reserved >= order.quantity) {
+                    item.reserved -= order.quantity;
+                }
+
+                // Reduce actual stock quantity
+                item.quantity = Math.max(0, item.quantity - order.quantity);
+
+                // If quantity reaches 0, delete associated embeds
+                if (item.quantity === 0) {
+                    await deleteItemEmbeds(order.itemId, guildId);
+                }
+            }
+
+            await saveDataToFirebase('orders', orders, guildId);
+            await saveDataToFirebase('stock', stock, guildId);
+
+            // Send delivery notification to the delivery channel (WITHOUT sensitive credentials)
+            if (settings.deliveryChannel) {
+                try {
+                    const deliveryChannel = await client.channels.fetch(settings.deliveryChannel);
+
+                    const deliveredEmbed = new EmbedBuilder()
+                        .setTitle('Order Delivered Successfully!')
+                        .setColor(0x00ff00)
+                        .setDescription(`**Order ID:** ${orderId}`)
+                        .addFields(
+                            { name: 'Customer', value: `<@${order.userId}>`, inline: true },
+                            { name: 'Item', value: order.itemName, inline: true },
+                            { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                            { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
+                            { name: 'Payment Method', value: order.paymentMethod, inline: true },
+                            { name: 'Status', value: 'Delivered', inline: true },
+                            { name: 'Delivery Method', value: 'Account credentials sent via DM', inline: false }
+                        )
+                        .setTimestamp();
+
+                    await deliveryChannel.send({ embeds: [deliveredEmbed] });
+                } catch (error) {
+                    console.error('Could not send delivery notification to delivery channel');
+                }
+            }
+
+            // Send SECURE DM to the customer with credentials
+            try {
+                const user = await client.users.fetch(order.userId);
+                const userEmbed = new EmbedBuilder()
+                    .setTitle('🔒 Your Order Has Been Delivered!')
+                    .setColor(0x00ff00)
+                    .setDescription(`**CONFIDENTIAL** - Your order ${orderId} has been successfully delivered.\n\n⚠️ **SECURITY NOTICE:** Please change the password immediately after first login and do not share these credentials with anyone.`)
+                    .addFields(
+                        { name: 'Item', value: order.itemName, inline: true },
+                        { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                        { name: 'Order ID', value: orderId, inline: true },
+                        { name: '👤 Username', value: `||${accountDetails.username}||`, inline: true },
+                        { name: '🔑 Password', value: `||${accountDetails.password}||`, inline: true }
+                    );
+                
+                if (accountDetails.additionalInfo && accountDetails.additionalInfo.trim() !== '' && accountDetails.additionalInfo !== 'None') {
+                    userEmbed.addFields(
+                        { name: '📝 Additional Info', value: `||${accountDetails.additionalInfo}||`, inline: false }
+                    );
+                }
+                
+                userEmbed.addFields(
+                    { name: '🛡️ Security Reminder', value: '• Change password immediately\n• Enable 2FA if available\n• Do not share credentials\n• This message will not be logged', inline: false }
+                );
+                
+                userEmbed.setFooter({ text: 'Thank you for choosing our service! Keep your credentials safe.' });
+                userEmbed.setTimestamp();
+
+                await user.send({ embeds: [userEmbed] });
+                
+            } catch (error) {
+                console.error('Could not send secure DM to user');
+            }
+
+            // Edit the deferred reply with success message
+            await interaction.editReply({ 
+                content: `🔒 Order ${orderId} marked as delivered! Secure credentials sent via DM to customer.`
+            });
+
+        } catch (error) {
+            console.error('Error processing account delivery:', error);
+            await interaction.editReply({ 
+                content: '❌ An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
+            });
+        }
         
         // SECURITY: Clear sensitive data from local variables immediately
         interaction.fields.getTextInputValue = () => '[REDACTED]';
