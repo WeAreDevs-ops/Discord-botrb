@@ -999,8 +999,93 @@ async function handleDeliverCommand(interaction) {
         return;
     }
 
-    // For non-account orders, proceed with normal delivery
-    await processDelivery(interaction, orderId, order, null);
+    // For Robux orders, defer the reply first to prevent timeout
+    await interaction.deferReply({ ephemeral: true });
+
+    // Process Robux delivery
+    try {
+        const settings = await loadDataFromFirebase('settings', guildId);
+        const stock = await loadDataFromFirebase('stock', guildId);
+
+        // Update order status to delivered
+        orders[orderId].status = 'Delivered';
+
+        // Handle stock updates when order is delivered
+        const item = stock[order.itemId];
+        if (item) {
+            // Release any reserved quantity and reduce actual stock
+            if (item.reserved && item.reserved >= order.quantity) {
+                item.reserved -= order.quantity;
+            }
+
+            // Reduce actual stock quantity
+            item.quantity = Math.max(0, item.quantity - order.quantity);
+
+            // If quantity reaches 0, delete associated embeds
+            if (item.quantity === 0) {
+                await deleteItemEmbeds(order.itemId, guildId);
+            }
+        }
+
+        await saveDataToFirebase('orders', orders, guildId);
+        await saveDataToFirebase('stock', stock, guildId);
+
+        // Send delivery notification to the delivery channel
+        if (settings.deliveryChannel) {
+            try {
+                const deliveryChannel = await client.channels.fetch(settings.deliveryChannel);
+
+                const deliveredEmbed = new EmbedBuilder()
+                    .setTitle('Order Delivered Successfully!')
+                    .setColor(0x00ff00)
+                    .setDescription(`**Order ID:** ${orderId}`)
+                    .addFields(
+                        { name: 'Customer', value: `<@${order.userId}>`, inline: true },
+                        { name: 'Item', value: order.itemName, inline: true },
+                        { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                        { name: 'Total Price', value: `₱${order.totalPrice.toFixed(2)}`, inline: true },
+                        { name: 'Payment Method', value: order.paymentMethod, inline: true },
+                        { name: 'Status', value: 'Delivered', inline: true }
+                    )
+                    .setTimestamp();
+
+                await deliveryChannel.send({ embeds: [deliveredEmbed] });
+            } catch (error) {
+                console.error('Could not send delivery notification to delivery channel');
+            }
+        }
+
+        // Send DM to the customer
+        try {
+            const user = await client.users.fetch(order.userId);
+            const userEmbed = new EmbedBuilder()
+                .setTitle('🎉 Your Order Has Been Delivered!')
+                .setColor(0x00ff00)
+                .setDescription(`Your order ${orderId} has been successfully delivered!`)
+                .addFields(
+                    { name: 'Item', value: order.itemName, inline: true },
+                    { name: 'Quantity', value: order.quantity.toString(), inline: true },
+                    { name: 'Order ID', value: orderId, inline: true }
+                )
+                .setFooter({ text: 'Thank you for choosing our service!' })
+                .setTimestamp();
+
+            await user.send({ embeds: [userEmbed] });
+        } catch (error) {
+            console.error('Could not send DM to user');
+        }
+
+        // Edit the deferred reply with success message
+        await interaction.editReply({ 
+            content: `✅ Order ${orderId} marked as delivered! Customer has been notified.`
+        });
+
+    } catch (error) {
+        console.error('Error processing Robux delivery:', error);
+        await interaction.editReply({ 
+            content: '❌ An error occurred while processing the delivery, but the order may have been completed. Please check manually.'
+        });
+    }
 }
 
 
