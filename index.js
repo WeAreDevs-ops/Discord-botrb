@@ -2162,13 +2162,19 @@ async function handleModal(interaction) {
                         {
                             id: interaction.user.id,
                             allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory']
+                        },
+                        {
+                            id: client.user.id,
+                            allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageMessages']
                         }
                     ]
                 });
 
-                // Save channel ID to ticket
+                // Save channel ID to ticket immediately after creation
                 tickets[ticketId].channelId = ticketChannel.id;
                 await saveDataToFirebase('tickets', tickets, guildId);
+                
+                console.log(`Successfully created ticket channel: ${ticketChannel.id} for ticket: ${ticketId}`);
 
                 const channelEmbed = new EmbedBuilder()
                     .setTitle('🎫 Support Ticket Created')
@@ -2212,11 +2218,33 @@ async function handleModal(interaction) {
                 await interaction.editReply({ embeds: [updatedUserEmbed] });
 
             } catch (error) {
-                console.error('Could not create private ticket channel:', error);
-                await interaction.followUp({ 
-                    content: 'Ticket created but failed to create private channel. Please contact an administrator.', 
-                    ephemeral: true 
-                });
+                console.error('Error in ticket channel creation process:', error);
+                
+                // Check if channel was actually created despite the error
+                if (tickets[ticketId].channelId) {
+                    // Channel was created successfully, just update the user
+                    const updatedUserEmbed = new EmbedBuilder()
+                        .setTitle('🎫 Support Ticket Created')
+                        .setColor(0x00ff00)
+                        .setDescription(`Your support ticket has been created successfully!`)
+                        .addFields(
+                            { name: 'Ticket ID', value: ticketId, inline: true },
+                            { name: 'Subject', value: subject, inline: true },
+                            { name: 'Category', value: category, inline: true },
+                            { name: 'Status', value: 'Open', inline: true },
+                            { name: 'Private Channel', value: `<#${tickets[ticketId].channelId}>`, inline: false }
+                        )
+                        .setFooter({ text: 'Please check the private channel for conversation with our support team.' })
+                        .setTimestamp();
+
+                    await interaction.editReply({ embeds: [updatedUserEmbed] });
+                } else {
+                    // Channel creation actually failed
+                    await interaction.followUp({ 
+                        content: 'Ticket created but failed to create private channel. Please contact an administrator.', 
+                        ephemeral: true 
+                    });
+                }
             }
         } else {
             await interaction.followUp({ 
