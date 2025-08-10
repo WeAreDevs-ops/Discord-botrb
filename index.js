@@ -293,6 +293,11 @@ const commands = [
         .setDescription('Check system health and status')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+    new SlashCommandBuilder()
+        .setName('ticket')
+        .setDescription('Display ticket support panel')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
 ];
 
 // Register slash commands
@@ -386,6 +391,9 @@ async function handleSlashCommand(interaction) {
                 break;
             case 'healthcheck':
                 await handleHealthCheckCommand(interaction);
+                break;
+            case 'ticket':
+                await handleTicketCommand(interaction);
                 break;
 
             default:
@@ -1124,6 +1132,35 @@ async function handleAnnounceCommand(interaction) {
     await interaction.reply({ embeds: [embed] });
 }
 
+async function handleTicketCommand(interaction) {
+    if (!interaction.memberPermissions.has('Administrator')) {
+        return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle('🎫 Support Ticket System')
+        .setColor(0x2f3136)
+        .setDescription('Need help with your order or have questions? Click the button below to create a support ticket.')
+        .addFields(
+            { name: '📞 What can we help you with?', value: '• Order status inquiries\n• Payment issues\n• Technical support\n• General questions\n• Refund requests', inline: false },
+            { name: '⏰ Response Time', value: 'We typically respond within 24 hours', inline: true },
+            { name: '🔍 Before creating a ticket', value: 'Check your order status first using `/status`', inline: true }
+        )
+        .setFooter({ text: 'Click the button below to get started' })
+        .setTimestamp();
+
+    const actionRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('create_ticket')
+                .setLabel('Create Support Ticket')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🎫')
+        );
+
+    await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: false });
+}
+
 async function handleHealthCheckCommand(interaction) {
     if (!interaction.memberPermissions.has('Administrator')) {
         return await interaction.reply({ content: 'You need Administrator permissions to use this command!', ephemeral: true });
@@ -1439,6 +1476,50 @@ async function handleButton(interaction) {
         }
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
+        return;
+    }
+
+    if (interaction.customId === 'create_ticket') {
+        const modal = new ModalBuilder()
+            .setCustomId('ticket_modal')
+            .setTitle('Create Support Ticket');
+
+        const subjectInput = new TextInputBuilder()
+            .setCustomId('ticket_subject')
+            .setLabel('Subject')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Brief description of your issue')
+            .setRequired(true);
+
+        const categoryInput = new TextInputBuilder()
+            .setCustomId('ticket_category')
+            .setLabel('Category')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Order Issue, Payment, Technical, General, Refund')
+            .setRequired(true);
+
+        const descriptionInput = new TextInputBuilder()
+            .setCustomId('ticket_description')
+            .setLabel('Description')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Please provide detailed information about your issue...')
+            .setRequired(true);
+
+        const orderIdInput = new TextInputBuilder()
+            .setCustomId('ticket_order_id')
+            .setLabel('Order ID (if applicable)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Leave blank if not order-related')
+            .setRequired(false);
+
+        const firstRow = new ActionRowBuilder().addComponents(subjectInput);
+        const secondRow = new ActionRowBuilder().addComponents(categoryInput);
+        const thirdRow = new ActionRowBuilder().addComponents(descriptionInput);
+        const fourthRow = new ActionRowBuilder().addComponents(orderIdInput);
+
+        modal.addComponents(firstRow, secondRow, thirdRow, fourthRow);
+
+        await interaction.showModal(modal);
         return;
     }
 
@@ -1861,6 +1942,104 @@ async function handleModal(interaction) {
             console.error('Error processing order:', error);
             await interaction.reply({ content: `An error occurred while processing your order: ${error.message}`, ephemeral: true });
         }
+    }
+
+    // Handle ticket modal submission
+    if (interaction.customId === 'ticket_modal') {
+        const subject = interaction.fields.getTextInputValue('ticket_subject').trim();
+        const category = interaction.fields.getTextInputValue('ticket_category').trim();
+        const description = interaction.fields.getTextInputValue('ticket_description').trim();
+        const orderId = interaction.fields.getTextInputValue('ticket_order_id').trim();
+        const guildId = interaction.guildId;
+
+        // Generate ticket ID
+        const ticketId = `ticket_${Date.now().toString(36)}`;
+
+        // Save ticket to Firebase
+        const tickets = await loadDataFromFirebase('tickets', guildId);
+        const ticket = {
+            ticketId,
+            userId: interaction.user.id,
+            username: interaction.user.username,
+            subject,
+            category,
+            description,
+            orderId: orderId || 'N/A',
+            status: 'Open',
+            timestamp: Date.now()
+        };
+
+        tickets[ticketId] = ticket;
+        await saveDataToFirebase('tickets', tickets, guildId);
+
+        // Send confirmation to user
+        const userEmbed = new EmbedBuilder()
+            .setTitle('🎫 Support Ticket Created')
+            .setColor(0x00ff00)
+            .setDescription(`Your support ticket has been created successfully!`)
+            .addFields(
+                { name: 'Ticket ID', value: ticketId, inline: true },
+                { name: 'Subject', value: subject, inline: true },
+                { name: 'Category', value: category, inline: true },
+                { name: 'Status', value: 'Open', inline: true }
+            )
+            .setFooter({ text: 'Our support team will review your ticket and respond as soon as possible.' })
+            .setTimestamp();
+
+        await interaction.reply({ embeds: [userEmbed], ephemeral: true });
+
+        // Send notification to admin
+        try {
+            const guild = await client.guilds.fetch(guildId);
+            const adminId = guild.ownerId;
+            const admin = await client.users.fetch(adminId);
+
+            const adminEmbed = new EmbedBuilder()
+                .setTitle('🎫 New Support Ticket')
+                .setColor(0xff9900)
+                .setDescription(`A new support ticket has been created and requires attention!`)
+                .addFields(
+                    { name: 'Ticket ID', value: ticketId, inline: true },
+                    { name: 'User', value: `${interaction.user.username} (${interaction.user.id})`, inline: true },
+                    { name: 'Category', value: category, inline: true },
+                    { name: 'Subject', value: subject, inline: false },
+                    { name: 'Description', value: description, inline: false }
+                );
+
+            if (orderId && orderId !== 'N/A') {
+                adminEmbed.addFields({ name: 'Related Order ID', value: orderId, inline: true });
+            }
+
+            adminEmbed.setTimestamp();
+
+            await admin.send({ embeds: [adminEmbed] });
+        } catch (error) {
+            console.error('Could not send ticket notification to admin:', error);
+        }
+
+        // Send to order channel if configured
+        const settings = await loadDataFromFirebase('settings', guildId);
+        if (settings.orderChannel) {
+            try {
+                const orderChannel = await client.channels.fetch(settings.orderChannel);
+
+                const channelEmbed = new EmbedBuilder()
+                    .setTitle('🎫 New Support Ticket')
+                    .setColor(0xff9900)
+                    .setAuthor({ 
+                        name: `${interaction.user.username} (${interaction.user.displayName || interaction.user.username})`,
+                        iconURL: interaction.user.displayAvatarURL()
+                    })
+                    .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${category}\n**Subject:** ${subject}\n**Status:** Open`)
+                    .setTimestamp();
+
+                await orderChannel.send({ embeds: [channelEmbed] });
+            } catch (error) {
+                console.error('Could not send ticket notification to order channel:', error);
+            }
+        }
+
+        return;
     }
 
     // Handle modal submit for delivering account orders
