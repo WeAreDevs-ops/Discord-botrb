@@ -2179,7 +2179,7 @@ async function handleModal(interaction) {
                 const channelEmbed = new EmbedBuilder()
                     .setTitle('🎫 Support Ticket Created')
                     .setColor(0xff9900)
-                    .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${category}\n**Subject:** ${subject}\n**Description:** ${description}`)
+                    .setDescription(`**Ticket ID:** ${ticketId}\n**Category:** ${ticket.category}\n**Subject:** ${subject}\n**Description:** ${description}`)
                     .addFields(
                         { name: 'Customer', value: `<@${interaction.user.id}>`, inline: true },
                         { name: 'Status', value: 'Open', inline: true }
